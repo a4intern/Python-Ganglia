@@ -763,6 +763,23 @@
             });
         }
 
+        async function setTarget(mode, valId, minLim, maxLim) {
+            const val = parseInt(document.getElementById(valId).value);
+            await fetch('/set_target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: mode, value: val, min_limit: minLim, max_limit: maxLim })
+            });
+        }
+
+        async function setPWM() {
+            const val = parseInt(document.getElementById('numPwm').value);
+            await fetch('/set_pwm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: val })
+            });
+        }
 
         const createChart = (ctxId, label, color) => {
             return new Chart(document.getElementById(ctxId), {

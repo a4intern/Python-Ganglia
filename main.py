@@ -113,6 +113,13 @@ class PWMRequest(BaseModel):
 class InvertRequest(BaseModel):
     invert: bool
 
+class SysIDRequest(BaseModel):
+    waveform_type: int
+    amplitude: int
+    frequency: int
+    offset: int
+    sine_enable: bool
+
 class ChatRequest(BaseModel):
     message: str
     context: dict
@@ -202,6 +209,13 @@ def set_op_mode(req: OpModeRequest):
         modbus_client.write_coil(6,  req.mode == -3, device_id=DEVICE_ID)
         mode_val = struct.unpack("<H", struct.pack("<h", req.mode))[0]
         modbus_client.write_register(ADDR_OP_MODE, mode_val, device_id=DEVICE_ID)
+
+        # Disable SysID signal generator when leaving SysID mode
+        if req.mode != 7:
+            modbus_client.write_coil(25, False, device_id=DEVICE_ID)
+            zero_val = struct.unpack("<2H", struct.pack("<I", 0))
+            modbus_client.write_registers(58, list(zero_val), device_id=DEVICE_ID)
+
     return {"status": "success"}
 
 @app.post("/set_pid")
@@ -266,7 +280,37 @@ def stop_drive():
     return {"status": "success"}
 
 # ---------------------------------------------------------
-# WebSocket Telemetry  — queue-drain, batch send every 5 ms
+
+@app.post("/set_sysid")
+def set_sysid(req: SysIDRequest):
+    with modbus_lock:
+        if not modbus_client or not modbus_client.connected:
+            return {"error": "Not connected"}
+        
+        # Set sine input coil (Coil 25)
+        modbus_client.write_coil(25, req.sine_enable, device_id=DEVICE_ID)
+        
+        # Write frequency (Reg 70, 1 word)
+        freq_val = struct.unpack("<H", struct.pack("<h", req.frequency))[0]
+        modbus_client.write_register(70, freq_val, device_id=DEVICE_ID)
+        
+        # Write offset (Reg 71, 1 word)
+        off_val = struct.unpack("<H", struct.pack("<h", req.offset))[0]
+        modbus_client.write_register(71, off_val, device_id=DEVICE_ID)
+        
+        # Write maximal_profile_velocity / amplitude (Reg 56, 2 words, uint32)
+        amp_bytes = struct.pack("<I", req.amplitude)
+        amp_regs = struct.unpack("<2H", amp_bytes)
+        modbus_client.write_registers(56, list(amp_regs), device_id=DEVICE_ID)
+        
+        # Write profile_velocity / waveform type (Reg 58, 2 words, uint32)
+        wv_bytes = struct.pack("<I", req.waveform_type)
+        wv_regs = struct.unpack("<2H", wv_bytes)
+        modbus_client.write_registers(58, list(wv_regs), device_id=DEVICE_ID)
+        
+    return {"status": "success"}
+
+# ---------------------------------------------------------
 # ---------------------------------------------------------
 @app.websocket("/ws/telemetry")
 async def telemetry_ws(websocket: WebSocket):
