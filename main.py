@@ -27,7 +27,6 @@ DEVICE_ID = 48
 
 modbus_lock = threading.Lock()
 
-# Pub/sub queues: one Queue per connected WebSocket client
 active_ws_queues: list[queue.Queue] = []
 active_ws_queues_lock = threading.Lock()
 
@@ -53,32 +52,37 @@ def modbus_polling_worker():
             try:
                 with modbus_lock:
                     result = modbus_client.read_input_registers(
-                        address=ADDR_MOTOR_STAT, count=20, device_id=DEVICE_ID
+                        address=ADDR_MOTOR_STAT, count=22, device_id=DEVICE_ID
                     )
 
                 if not hasattr(result, "isError") or not result.isError():
                     regs = result.registers
-                    velocity = struct.unpack("<i", struct.pack("<HH", regs[2], regs[3]))[0]
-                    current  = struct.unpack("<i", struct.pack("<HH", regs[4], regs[5]))[0]
+
+                    raw_velocity = struct.unpack("<i", struct.pack("<HH", regs[2], regs[3]))[0]
+                    raw_current  = struct.unpack("<i", struct.pack("<HH", regs[4], regs[5]))[0]
+                    raw_target   = struct.unpack("<i", struct.pack("<HH", regs[18], regs[19]))[0]
+
+                    # Scale according to main.h
+                    ENC_TO_RPM = 91.5527344
+                    ADC_TO_MA = 4.698555425  # Assuming STM32F3 board
 
                     pt = {
                         "timestamp": time.time(),
-                        "velocity": velocity,
-                        "current": current,
+                        "velocity": raw_velocity * ENC_TO_RPM,
+                        "current": raw_current * ADC_TO_MA,
+                        "target_velocity": raw_target * ENC_TO_RPM,
                     }
 
-                    # Distribute to all active WebSocket subscriber queues
                     with active_ws_queues_lock:
                         for q in active_ws_queues:
                             try:
                                 q.put_nowait(pt)
                             except queue.Full:
-                                pass  # Drop oldest implicitly by capping queue size
+                                pass
 
             except Exception as e:
                 print(f"Polling error: {e}")
 
-        # ~1 ms poll interval → up to ~1000 samples/s
         time.sleep(0.001)
 
 
@@ -135,7 +139,7 @@ def get_ui():
 def chat_with_ai(req: ChatRequest):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return {"response": "Error: GEMINI_API_KEY environment variable is not set on the server. Please set it to use the AI Tutor."}
+        return {"response": "Error: GEMINI_API_KEY environment variable is not set on the server."}
         
     try:
         genai.configure(api_key=api_key)
@@ -146,12 +150,7 @@ The student is using a web app to tune a DC motor using PID control.
 Here is the current state of their UI:
 {json.dumps(req.context, indent=2)}
 
-Use this context to answer their questions accurately. such as:
-- Time Response (Over-damped, Under-damped, Critical Damped)
-- Ziegler-Nichols tuning
-- Root Locus and Bode plot design
-
-Be encouraging, educational, and avoid just giving them the direct answers. Guide them to understand."""
+Use this context to answer their questions accurately. Be encouraging, educational, and avoid giving direct answers without explanation."""
         
         prompt = f"{system_prompt}\n\nStudent asks: {req.message}"
         response = model.generate_content(prompt)
@@ -210,11 +209,12 @@ def set_op_mode(req: OpModeRequest):
         mode_val = struct.unpack("<H", struct.pack("<h", req.mode))[0]
         modbus_client.write_register(ADDR_OP_MODE, mode_val, device_id=DEVICE_ID)
 
-        # Disable SysID signal generator when leaving SysID mode
         if req.mode != 7:
             modbus_client.write_coil(25, False, device_id=DEVICE_ID)
-            zero_val = struct.unpack("<2H", struct.pack("<I", 0))
-            modbus_client.write_registers(58, list(zero_val), device_id=DEVICE_ID)
+            restore_val_56 = struct.unpack("<2H", struct.pack("<I", 30000))
+            modbus_client.write_registers(56, list(restore_val_56), device_id=DEVICE_ID)
+            restore_val_58 = struct.unpack("<2H", struct.pack("<I", 0))
+            modbus_client.write_registers(58, list(restore_val_58), device_id=DEVICE_ID)
 
     return {"status": "success"}
 
@@ -279,31 +279,22 @@ def stop_drive():
         modbus_client.write_coil(3,  False, device_id=DEVICE_ID)
     return {"status": "success"}
 
-# ---------------------------------------------------------
-
 @app.post("/set_sysid")
 def set_sysid(req: SysIDRequest):
     with modbus_lock:
         if not modbus_client or not modbus_client.connected:
             return {"error": "Not connected"}
         
-        # Set sine input coil (Coil 25)
         modbus_client.write_coil(25, req.sine_enable, device_id=DEVICE_ID)
-        
-        # Write frequency (Reg 70, 1 word)
         freq_val = struct.unpack("<H", struct.pack("<h", req.frequency))[0]
         modbus_client.write_register(70, freq_val, device_id=DEVICE_ID)
-        
-        # Write offset (Reg 71, 1 word)
         off_val = struct.unpack("<H", struct.pack("<h", req.offset))[0]
         modbus_client.write_register(71, off_val, device_id=DEVICE_ID)
         
-        # Write maximal_profile_velocity / amplitude (Reg 56, 2 words, uint32)
         amp_bytes = struct.pack("<I", req.amplitude)
         amp_regs = struct.unpack("<2H", amp_bytes)
         modbus_client.write_registers(56, list(amp_regs), device_id=DEVICE_ID)
         
-        # Write profile_velocity / waveform type (Reg 58, 2 words, uint32)
         wv_bytes = struct.pack("<I", req.waveform_type)
         wv_regs = struct.unpack("<2H", wv_bytes)
         modbus_client.write_registers(58, list(wv_regs), device_id=DEVICE_ID)
@@ -311,20 +302,19 @@ def set_sysid(req: SysIDRequest):
     return {"status": "success"}
 
 # ---------------------------------------------------------
+# WebSocket Endpoint
 # ---------------------------------------------------------
 @app.websocket("/ws/telemetry")
 async def telemetry_ws(websocket: WebSocket):
     await websocket.accept()
     start_time = time.time()
 
-    # Each client gets its own queue (cap 5000 pts ≈ 5 s at 1kHz)
     q: queue.Queue = queue.Queue(maxsize=5000)
     with active_ws_queues_lock:
         active_ws_queues.append(q)
 
     try:
         while True:
-            # Drain everything that has accumulated since last wake
             pts = []
             while True:
                 try:
@@ -333,6 +323,7 @@ async def telemetry_ws(websocket: WebSocket):
                         "time":     pt["timestamp"] - start_time,
                         "velocity": pt["velocity"],
                         "current":  pt["current"],
+                        "target_velocity": pt.get("target_velocity", 0),
                     })
                 except queue.Empty:
                     break
@@ -340,7 +331,6 @@ async def telemetry_ws(websocket: WebSocket):
             if pts:
                 await websocket.send_json(pts)
 
-            # Yield to the event loop; wake every 5 ms
             await asyncio.sleep(0.005)
 
     except WebSocketDisconnect:
