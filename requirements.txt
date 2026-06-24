@@ -4,3 +4,9 @@ pyserial
 pymodbus
 google-generativeai
 uvicorn
+websockets
+google-genai
+python-dotenv
+scipy
+matplotlib
+numpy

@@ -7,3 +7,8 @@ ENV/
 env/
 .env
 .DS_Store
+
+# Generated data and reports
+sysid_data/
+sysid_report/
+scratch/
