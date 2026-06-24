@@ -55,3 +55,16 @@ class TransferRequest(BaseModel):
     c_new2: float
     d_new1: float
     limit_i: int = 30000
+
+class AgentLog(BaseModel):
+    message: str
+
+class AgentPromptRequest(BaseModel):
+    prompt: str
+
+class SysIDStatus(BaseModel):
+    phase: str = "idle"
+    test: str = ""
+    progress: float = 0.0
+    running: bool = False
+    aborted: bool = False
