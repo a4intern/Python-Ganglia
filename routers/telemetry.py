@@ -33,6 +33,10 @@ async def telemetry_ws(websocket: WebSocket):
                             "z1": telemetry_data_point.get("z1", 0),
                             "z2": telemetry_data_point.get("z2", 0),
                             "z3": telemetry_data_point.get("z3", 0),
+                            "agent_target": telemetry_data_point.get("agent_target", 0.0),
+                            "agent_wc": telemetry_data_point.get("agent_wc", 0.0),
+                            "agent_b0": telemetry_data_point.get("agent_b0", 0.0),
+                            "agent_ramp": telemetry_data_point.get("agent_ramp", 0.0),
                         })
                 except queue.Empty:
                     break

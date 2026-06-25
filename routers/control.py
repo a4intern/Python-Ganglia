@@ -5,7 +5,7 @@ import queue
 from fastapi import APIRouter
 from config import *
 from models import *
-from modbus_handler import get_modbus, active_ws_queues, active_ws_queues_lock
+from modbus_handler import get_modbus, active_ws_queues, active_ws_queues_lock, agent_state, agent_state_lock
 
 router = APIRouter()
 
@@ -97,6 +97,13 @@ def set_adrc(req: ADRCRequest):
         packed_bytes = struct.pack("<ffff", req.wc, req.b0, req.ramp_time, 0.0)
         registers = struct.unpack("<8H", packed_bytes)
         modbus_client.write_registers(address=addr, values=list(registers), device_id=device_id)
+
+    if req.mode == "velocity":
+        with agent_state_lock:
+            agent_state["agent_wc"] = req.wc
+            agent_state["agent_b0"] = req.b0
+            agent_state["agent_ramp"] = req.ramp_time
+
     return {"status": "success"}
 
 @router.post("/set_target")
@@ -124,10 +131,14 @@ def set_target(req: TargetRequest):
         else:
             scaled_value = int(req.value * CURRENT_TRANSFER_SCALE)
             
-        packed_bytes = struct.pack("<iii", scaled_value, req.min_limit, req.max_limit)
+        packed_bytes = struct.pack("<iii", scaled_value, int(req.min_limit), int(req.max_limit))
         registers = struct.unpack("<6H", packed_bytes)
         modbus_client.write_registers(address=addr, values=list(registers), device_id=device_id)
         
+    if req.mode == "velocity":
+        with agent_state_lock:
+            agent_state["agent_target"] = req.value
+
     return {"status": "success"}
 
 @router.post("/start")

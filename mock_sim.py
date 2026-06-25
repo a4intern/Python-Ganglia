@@ -292,6 +292,7 @@ class MockModbusClient:
     def connect(self):
         if self.port == "Virtual Motor":
             self.connected = True
+            sim_state["op_mode"] = -2  # default to velocity mode
             return True
         return False
 
@@ -330,6 +331,8 @@ class MockModbusClient:
             sim_state["coils"][address] = value
             if address == 11 and value:
                 sim_state["position"] = 0.0
+            if address == 13:
+                sim_state["drive_enabled"] = bool(value)
                 
     def write_register(self, address, value, device_id):
         with state_lock:
@@ -355,6 +358,13 @@ class MockModbusClient:
                     if address == 26:
                         sim_state["target_velocity"] = val / 10.0
 
+            if address in (368, 376, 384):  # ADRC pos/vel/cur
+                if len(values) >= 8:
+                    b = struct.pack("<8H", *values[:8])
+                    wc, b0, ramp_time, _ = struct.unpack("<ffff", b)
+                    sim_state["adrc_wc"] = wc
+                    sim_state["adrc_b0"] = b0
+
 pymodbus.client.ModbusSerialClient = MockModbusClient
 
 if __name__ == "__main__":
@@ -371,6 +381,7 @@ if __name__ == "__main__":
         
     @main.app.post("/api/tune_adrc")
     async def tune_adrc_endpoint(req: TuneAdrcReq):
+        from modbus_handler import agent_state, agent_state_lock
         with state_lock:
             if req.wc is not None: sim_state["adrc_wc"] = req.wc
             if req.b0 is not None: sim_state["adrc_b0"] = req.b0
@@ -383,6 +394,10 @@ if __name__ == "__main__":
                 "blend": sim_state["adrc_blend"]
             }
             
+        with agent_state_lock:
+            if req.wc is not None: agent_state["agent_wc"] = req.wc
+            if req.b0 is not None: agent_state["agent_b0"] = req.b0
+
         with main.active_ws_queues_lock:
             for q in main.active_ws_queues:
                 try: q.put_nowait(update_msg)

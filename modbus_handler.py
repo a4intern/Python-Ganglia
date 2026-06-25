@@ -16,6 +16,14 @@ modbus_lock = threading.Lock()
 active_ws_queues = []
 active_ws_queues_lock = threading.Lock()
 
+agent_state = {
+    "agent_target": 0.0,
+    "agent_wc": 10.0,
+    "agent_b0": 1.0,
+    "agent_ramp": 2.0,
+}
+agent_state_lock = threading.Lock()
+
 def get_modbus():
     """Helper to get current modbus client and state"""
     return modbus_client, DEVICE_ID, modbus_lock
@@ -81,15 +89,20 @@ def modbus_polling_worker():
             ADC_TO_MA = 4.698555425 
             actual_current = raw_current * ADC_TO_MA
 
-            telemetry_data_point = {
-                "timestamp": time.time(),
-                "velocity": actual_velocity,
-                "current": actual_current,
-                "target_velocity": actual_target_vel,
-                "z1": raw_z1,
-                "z2": raw_z2,
-                "z3": raw_z3,
-            }
+            with agent_state_lock:
+                telemetry_data_point = {
+                    "timestamp": time.time(),
+                    "velocity": actual_velocity,
+                    "current": actual_current,
+                    "target_velocity": actual_target_vel,
+                    "z1": raw_z1,
+                    "z2": raw_z2,
+                    "z3": raw_z3,
+                    "agent_target": agent_state["agent_target"],
+                    "agent_wc": agent_state["agent_wc"],
+                    "agent_b0": agent_state["agent_b0"],
+                    "agent_ramp": agent_state["agent_ramp"],
+                }
 
             with active_ws_queues_lock:
                 for ws_queue in active_ws_queues:

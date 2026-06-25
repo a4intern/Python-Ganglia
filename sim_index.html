@@ -550,7 +550,10 @@
                         style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; margin-top: 10px; color: #475569; align-items: center;">
                         <span>PID Control (0%)</span>
                         <div style="display: flex; align-items: center; gap: 2px;">
-                            <input type="number" id="blendDisplay" min="0" max="100" step="1" value="0" style="width: 50px; padding: 2px 5px; text-align: center; color: #e11d48; border-color: #e11d48; font-weight: bold;" oninput="syncInput('blendDisplay', 'sliderBlend')" onchange="sendBlendData()" onkeydown="if(event.key==='Enter') sendBlendData()">
+                            <input type="number" id="blendDisplay" min="0" max="100" step="1" value="0"
+                                style="width: 50px; padding: 2px 5px; text-align: center; color: #e11d48; border-color: #e11d48; font-weight: bold;"
+                                oninput="syncInput('blendDisplay', 'sliderBlend')" onchange="sendBlendData()"
+                                onkeydown="if(event.key==='Enter') sendBlendData()">
                             <span style="color: #e11d48;">%</span>
                         </div>
                         <span>New Control (100%)</span>
@@ -593,7 +596,7 @@
                     </div>
                 </div>
                 <div class="input-group">
-                    <strong>Target:</strong> <input type="number" id="numVel" value="0"
+                    <strong>Target:</strong> <input type="number" id="numVel" value="200"
                         oninput="syncInput('numVel', 'valVel')"
                         onkeydown="if(event.key==='Enter') setTarget('velocity', 'valVel', -4000, 4000)"> RPM<br>
                     <input type="range" id="valVel" min="-4000" max="4000" step="1" value="0"
@@ -603,12 +606,17 @@
 
             <div id="tab-agent" class="tab-content">
                 <h3>Velocity Agent Observer</h3>
-                <p style="font-size: 13px; color: #475569;">Monitoring active parameters commanded by the background tuner...</p>
+                <p style="font-size: 13px; color: #475569;">Monitoring active parameters commanded by the background
+                    tuner...</p>
                 <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px; overflow-x: hidden;">
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentTargetChart"></canvas></div>
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentWcChart"></canvas></div>
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentB0Chart"></canvas></div>
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentRampChart"></canvas></div>
+                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentTargetChart"></canvas>
+                    </div>
+                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentWcChart"></canvas>
+                    </div>
+                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentB0Chart"></canvas>
+                    </div>
+                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentRampChart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -771,13 +779,21 @@
 
             <div id="agentLogContainer" style="display: none; margin-top: 15px; gap: 15px;">
                 <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
-                    <textarea id="agentPromptInput" placeholder="Tell the agent what to do... (e.g. 'I want it to 10 RPM', 'make it less jerky')" style="flex: 1; resize: none; background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-family: sans-serif; font-size: 13px;"></textarea>
+                    <textarea id="agentPromptInput"
+                        placeholder="Tell the agent what to do... (e.g. 'I want it to 10 RPM', 'make it less jerky')"
+                        style="flex: 1; resize: none; background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-family: sans-serif; font-size: 13px;"></textarea>
                     <div style="display: flex; gap: 10px;">
-                        <button onclick="sendAgentPrompt()" style="flex: 1; padding: 8px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Send Prompt</button>
-                        <button onclick="startAgentTuner()" style="flex: 1; padding: 8px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Start Agent</button>
+                        <button onclick="sendAgentPrompt()"
+                            style="flex: 1; padding: 8px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Send
+                            Prompt</button>
+                        <button onclick="startAgentTuner()"
+                            style="flex: 1; padding: 8px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Start
+                            Agent</button>
                     </div>
                 </div>
-                <div id="agentLogTerminal" style="flex: 2; height: 180px; overflow-y: auto; background: #1e293b; color: #10b981; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border-radius: 8px; border: 1px solid #334155; white-space: pre-wrap; word-break: break-word;">Waiting for Agent logs...</div>
+                <div id="agentLogTerminal"
+                    style="flex: 2; height: 180px; overflow-y: auto; background: #1e293b; color: #10b981; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border-radius: 8px; border: 1px solid #334155; white-space: pre-wrap; word-break: break-word;">
+                    Waiting for Agent logs...</div>
             </div>
         </div>
     </div>
@@ -865,7 +881,7 @@
             document.getElementById('tab-' + tabPrefix).classList.add('active');
             document.getElementById('btn-' + tabPrefix).classList.add('active');
             const agentLogContainer = document.getElementById('agentLogContainer');
-            if(agentLogContainer) agentLogContainer.style.display = (tabPrefix === 'agent') ? 'flex' : 'none';
+            if (agentLogContainer) agentLogContainer.style.display = (tabPrefix === 'agent') ? 'flex' : 'none';
             await fetch('/set_op_mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: opModeInt }) });
         }
 
@@ -997,23 +1013,23 @@
         const agentRampChart = createChart('agentRampChart', 'Ramp Time (s)', '#8b5cf6');
 
         async function refreshPorts() {
-          try {
-            const res = await fetch("/ports");
-            const data = await res.json();
-            const select = document.getElementById("portSelect");
-            select.innerHTML = "";
-            data.ports.forEach(p => {
-              const opt = document.createElement("option");
-              opt.value = p;
-              opt.textContent = p;
-              if (p.toLowerCase().includes("usb")) {
-                opt.selected = true;
-              }
-              select.appendChild(opt);
-            });
-          } catch (err) {
-            console.error(err);
-          }
+            try {
+                const res = await fetch("/ports");
+                const data = await res.json();
+                const select = document.getElementById("portSelect");
+                select.innerHTML = "";
+                data.ports.forEach(p => {
+                    const opt = document.createElement("option");
+                    opt.value = p;
+                    opt.textContent = p;
+                    if (p.toLowerCase().includes("usb")) {
+                        opt.selected = true;
+                    }
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                console.error(err);
+            }
         }
 
         async function connectPort() {
@@ -1024,7 +1040,7 @@
             const res = await fetch('/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ port: port, device_id: 48 }) });
             const data = await res.json();
             statusSpan.innerText = data.message; statusSpan.style.color = data.status === 'connected' ? "green" : "red";
-            if (data.status === 'connected') { isConnected = true; connBtn.innerText = "Disconnect"; connBtn.classList.add('danger-btn'); startTelemetry(); }
+            if (data.status === 'connected') { isConnected = true; connBtn.innerText = "Disconnect"; connBtn.classList.add('danger-btn'); startTelemetry(); await switchTab('vel', -2); await setTarget('velocity', 'valVel', -4000, 4000); }
             connBtn.disabled = false;
         }
 
@@ -1060,10 +1076,10 @@
         // Downsampling counter for visual charts to reduce lag
         let renderDecimationCounter = 0;
 
-        
+
         function sendAgentPrompt() {
             const p = document.getElementById('agentPromptInput').value;
-            fetch('/api/agent_prompt', { method: 'POST', body: JSON.stringify({prompt: p}), headers: {'Content-Type': 'application/json'}});
+            fetch('/api/agent_prompt', { method: 'POST', body: JSON.stringify({ prompt: p }), headers: { 'Content-Type': 'application/json' } });
             document.getElementById('agentPromptInput').value = '';
         }
 
@@ -1100,13 +1116,39 @@
                         lastTime = pt.time;
                         lastVel = pt.velocity;
 
+                        // Sync UI inputs to agent values if user is not actively interacting
+                        const numVel = document.getElementById('numVel');
+                        const valVel = document.getElementById('valVel');
+                        if (numVel && valVel && document.activeElement !== numVel && document.activeElement !== valVel) {
+                            numVel.value = pt.agent_target;
+                            valVel.value = pt.agent_target;
+                        }
+
+                        const wc = document.getElementById('vel_adrc_wc');
+                        const sliderWc = document.getElementById('slider_vel_adrc_wc');
+                        if (wc && sliderWc && document.activeElement !== wc && document.activeElement !== sliderWc) {
+                            wc.value = pt.agent_wc;
+                            sliderWc.value = pt.agent_wc;
+                        }
+
+                        const b0 = document.getElementById('vel_adrc_b0');
+                        const sliderB0 = document.getElementById('slider_vel_adrc_b0');
+                        if (b0 && sliderB0 && document.activeElement !== b0 && document.activeElement !== sliderB0) {
+                            b0.value = pt.agent_b0;
+                            sliderB0.value = pt.agent_b0;
+                        }
+
+                        const ramp = document.getElementById('vel_adrc_ramp');
+                        const sliderRamp = document.getElementById('slider_vel_adrc_ramp');
+                        if (ramp && sliderRamp && document.activeElement !== ramp && document.activeElement !== sliderRamp) {
+                            ramp.value = pt.agent_ramp;
+                            sliderRamp.value = pt.agent_ramp;
+                        }
+
                         // Append current UI state
                         const sliderBlend = document.getElementById('sliderBlend');
                         pt.fading = sliderBlend ? sliderBlend.value : 0;
 
-                        const wc = document.getElementById('vel_adrc_wc');
-                        const b0 = document.getElementById('vel_adrc_b0');
-                        const ramp = document.getElementById('vel_adrc_ramp');
                         pt.adrc_wc = wc ? wc.value : 0;
                         pt.adrc_b0 = b0 ? b0.value : 0;
                         pt.adrc_ramp = ramp ? ramp.value : 0;
@@ -1190,10 +1232,10 @@
         }
         requestAnimationFrame(renderLoop);
 
-        refreshPorts(); switchTab('agent', -2);
+        refreshPorts(); switchTab('vel', -2);
 
         let aiChatDragDist = 0; let isDraggingAiChat = false; let aiChatStartX = 0; let aiChatStartLeft = 0;
-        
+
         const agentLogTerminal = document.getElementById('agentLogTerminal');
         const agentLogWs = new WebSocket(`ws://${location.host}/ws/agent_logs`);
         agentLogWs.onmessage = (event) => {

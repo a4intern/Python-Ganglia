@@ -21,9 +21,9 @@ class ADRCRequest(BaseModel):
 
 class TargetRequest(BaseModel):
     mode: str
-    value: int
-    min_limit: int
-    max_limit: int
+    value: float
+    min_limit: float = -4000.0
+    max_limit: float = 4000.0
 
 class OpModeRequest(BaseModel):
     mode: int

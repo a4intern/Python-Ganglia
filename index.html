@@ -675,13 +675,39 @@
                         lastTime = pt.time;
                         lastVel = pt.velocity;
 
+                        // Sync UI inputs to agent values if user is not actively interacting
+                        const numVel = document.getElementById('numVel');
+                        const valVel = document.getElementById('valVel');
+                        if (numVel && valVel && document.activeElement !== numVel && document.activeElement !== valVel) {
+                            numVel.value = pt.agent_target;
+                            valVel.value = pt.agent_target;
+                        }
+
+                        const wc = document.getElementById('vel_adrc_wc');
+                        const sliderWc = document.getElementById('slider_vel_adrc_wc');
+                        if (wc && sliderWc && document.activeElement !== wc && document.activeElement !== sliderWc) {
+                            wc.value = pt.agent_wc;
+                            sliderWc.value = pt.agent_wc;
+                        }
+
+                        const b0 = document.getElementById('vel_adrc_b0');
+                        const sliderB0 = document.getElementById('slider_vel_adrc_b0');
+                        if (b0 && sliderB0 && document.activeElement !== b0 && document.activeElement !== sliderB0) {
+                            b0.value = pt.agent_b0;
+                            sliderB0.value = pt.agent_b0;
+                        }
+
+                        const ramp = document.getElementById('vel_adrc_ramp');
+                        const sliderRamp = document.getElementById('slider_vel_adrc_ramp');
+                        if (ramp && sliderRamp && document.activeElement !== ramp && document.activeElement !== sliderRamp) {
+                            ramp.value = pt.agent_ramp;
+                            sliderRamp.value = pt.agent_ramp;
+                        }
+
                         // Append current UI state
                         const sliderBlend = document.getElementById('sliderBlend');
                         pt.fading = sliderBlend ? sliderBlend.value : 0;
 
-                        const wc = document.getElementById('vel_adrc_wc');
-                        const b0 = document.getElementById('vel_adrc_b0');
-                        const ramp = document.getElementById('vel_adrc_ramp');
                         pt.adrc_wc = wc ? wc.value : 0;
                         pt.adrc_b0 = b0 ? b0.value : 0;
                         pt.adrc_ramp = ramp ? ramp.value : 0;

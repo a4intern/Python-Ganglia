@@ -62,17 +62,23 @@ async def measure_telemetry(duration=3.0):
                             velocities.append(pt["velocity"])
                         if "current" in pt:
                             currents.append(pt["current"])
-                        
-                        # Grab the latest state parameters
-                        current_state["target"] = pt.get("agent_target", 0)
-                        current_state["wc"] = pt.get("agent_wc", 0)
-                        current_state["b0"] = pt.get("agent_b0", 0)
-                        current_state["ramp_time"] = pt.get("agent_ramp", 0)
                 except asyncio.TimeoutError:
                     continue
     except Exception as e:
         print(f"WS Error: {e}")
         return None, None
+
+    # Read actual ADRC state from API (these fields are not in the telemetry stream)
+    try:
+        r = requests.get(f"{BASE_URL}/api/state", timeout=1)
+        if r.status_code == 200:
+            api_state = r.json()
+            current_state["target"] = api_state.get("target_velocity", 0)
+            current_state["wc"] = api_state.get("adrc_wc", 0)
+            current_state["b0"] = api_state.get("adrc_b0", 0)
+            current_state["ramp_time"] = 0.0
+    except Exception:
+        pass
 
     if not velocities:
         return None, None
@@ -103,7 +109,7 @@ def set_adrc(wc, b0, ramp=0.0, target=None):
     if target is not None:
         target = float(target)
         requests.post(f"{BASE_URL}/set_target", json={
-            "mode": "velocity", "value": target
+            "mode": "velocity", "value": int(target), "min_limit": -4000, "max_limit": 4000
         })
         log_to_ui(f"Setting target to: {target:.2f} RPM")
 
@@ -145,6 +151,8 @@ Based on this, please provide the next wc, b0, ramp_time, and target_velocity to
 
         if user_prompt:
             prompt += f"\n\n*** USER INSTRUCTION ***\nThe user has issued a direct command: '{user_prompt}'\nYou MUST adjust parameters and target_velocity to fulfill this request!\n************************\n"
+        else:
+            prompt += f"\n\nNo user instruction. You MUST keep target_velocity = {state['target']} exactly. Only tune wc and b0."
 
         log_to_ui("Querying Gemini Agent...")
         try:
