@@ -556,16 +556,23 @@
 
         Chart.defaults.color = '#64748b';
         Chart.defaults.borderColor = 'rgba(0,0,0,0.05)';
-        const createChart = (ctxId, label, color) => {
+        const createChart = (ctxId, label, color, yMin = null, yMax = null) => {
+            const scales = {
+                x: { display: true },
+                y: { display: true }
+            };
+            if (yMin !== null) scales.y.min = yMin;
+            if (yMax !== null) scales.y.max = yMax;
+
             return new Chart(document.getElementById(ctxId), {
                 type: 'line',
                 data: { labels: [], datasets: [{ label: label, borderColor: color, data: [], fill: false, pointRadius: 0, borderWidth: 2, tension: 0.1 }] },
-                options: { animation: false, responsive: true, maintainAspectRatio: false, scales: { x: { display: true }, y: { display: true } } }
+                options: { animation: false, responsive: true, maintainAspectRatio: false, scales: scales }
             });
         };
 
         const velChart = createChart('velChart', 'Velocity (rpm)', '#0284c7');
-        const accChart = createChart('accChart', 'Acceleration (rpm/s)', '#d97706');
+        const accChart = createChart('accChart', 'Acceleration (rpm/s)', '#d97706', -30, 30);
         const curChart = createChart('curChart', 'Current (mA)', '#e11d48');
         const z1Chart = createChart('z1Chart', 'z1 (Position)', '#10b981');
         const z2Chart = createChart('z2Chart', 'z2 (Velocity)', '#8b5cf6');
