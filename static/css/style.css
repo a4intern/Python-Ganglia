@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Google Sans', 'Product Sans', 'Inter', sans-serif;
             margin: 20px;
             background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
             color: #334155;
@@ -112,7 +112,7 @@
             border: 1px solid #cbd5e1;
             color: #1e293b;
             border-radius: 6px;
-            font-family: 'Inter', sans-serif;
+            font-family: 'Google Sans', 'Product Sans', 'Inter', sans-serif;
             transition: all 0.2s;
         }
 

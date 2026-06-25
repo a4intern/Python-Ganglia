@@ -8,7 +8,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Google Sans', 'Product Sans', 'Inter', sans-serif;
             margin: 20px;
             background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
             color: #334155;
@@ -119,7 +119,7 @@
             border: 1px solid #cbd5e1;
             color: #1e293b;
             border-radius: 6px;
-            font-family: 'Inter', sans-serif;
+            font-family: 'Google Sans', 'Product Sans', 'Inter', sans-serif;
             transition: all 0.2s;
         }
 
@@ -813,7 +813,7 @@
                     <textarea id="agentPromptInput"
                         placeholder="Tell the agent what to do... (e.g. 'I want it to 10 RPM', 'make it less jerky')"
                         onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendAgentPrompt(); }"
-                        style="flex: 1; resize: none; background: rgba(0,0,0,0.25); color: #fff; border: 1px solid #475569; border-radius: 6px; padding: 10px; font-family: sans-serif; font-size: 13px;"></textarea>
+                        style="flex: 1; resize: none; background: rgba(0,0,0,0.25); color: #fff; border: 1px solid #475569; border-radius: 6px; padding: 10px; font-family: inherit; font-size: 13px;"></textarea>
                     <div style="display: flex; gap: 10px;">
                         <button onclick="sendAgentPrompt()"
                             style="flex: 1; padding: 8px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Send
@@ -1038,6 +1038,7 @@
 
         Chart.defaults.color = '#64748b';
         Chart.defaults.borderColor = 'rgba(0,0,0,0.05)';
+        Chart.defaults.font.family = "'Google Sans', 'Product Sans', 'Inter', sans-serif";
         const createChart = (ctxId, label, color, yMin = null, yMax = null) => {
             const scales = {
                 x: {
