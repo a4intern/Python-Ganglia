@@ -333,6 +333,15 @@ class MockModbusClient:
                 sim_state["position"] = 0.0
             if address == 13:
                 sim_state["drive_enabled"] = bool(value)
+                if bool(value):
+                    # Reset controller state on drive enable to prevent spurious motion
+                    sim_state["adrc_z1"] = sim_state["velocity"]
+                    sim_state["adrc_z2"] = 0.0
+                    sim_state["adrc_z3"] = 0.0
+                    sim_state["pid_integral"] = 0.0
+                    sim_state["last_error"] = 0.0
+                    sim_state["last_voltage"] = 0.0
+                    sim_state["ramped_target"] = sim_state["target_velocity"]
                 
     def write_register(self, address, value, device_id):
         with state_lock:

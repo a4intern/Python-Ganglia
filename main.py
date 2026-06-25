@@ -88,8 +88,21 @@ def start_tuner():
         agent_tuner_process.terminate()
         agent_tuner_process.wait()
     kill_all_tuners()
-    agent_tuner_process = subprocess.Popen([sys.executable, str(Path("agents") / "genai_agent_tuner.py")])
-    return {"status": "started", "pid": agent_tuner_process.pid}
+    log_path = Path("logs") / "tuner_subprocess.log"
+    log_path.parent.mkdir(exist_ok=True)
+    log_file = open(log_path, "a")
+    python_cmd = sys.executable
+    venv_python = Path(__file__).parent / ".venv" / "bin" / "python3"
+    if not venv_python.exists():
+        venv_python = Path(__file__).parent / "venv" / "bin" / "python3"
+    if venv_python.exists():
+        python_cmd = str(venv_python)
+
+    agent_tuner_process = subprocess.Popen(
+        [python_cmd, "-u", str(Path("agents") / "genai_agent_tuner.py")],
+        stdout=log_file, stderr=log_file,
+    )
+    return {"status": "started", "pid": agent_tuner_process.pid, "log": str(log_path)}
 
 @app.post("/api/stop_tuner")
 def stop_tuner():
