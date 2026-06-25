@@ -78,6 +78,16 @@ def start_tuner():
     agent_tuner_process = subprocess.Popen([sys.executable, "genai_agent_tuner.py"])
     return {"status": "started", "pid": agent_tuner_process.pid}
 
+@app.post("/api/stop_tuner")
+def stop_tuner():
+    global agent_tuner_process
+    if agent_tuner_process is not None and agent_tuner_process.poll() is None:
+        agent_tuner_process.terminate()
+        agent_tuner_process.wait()
+        agent_tuner_process = None
+        return {"status": "stopped"}
+    return {"status": "not running"}
+
 # ----- SysID Status -----
 _sysid_status: dict = {"phase": "idle", "test": "", "progress": 0.0, "running": False}
 

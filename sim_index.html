@@ -781,6 +781,7 @@
                 <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
                     <textarea id="agentPromptInput"
                         placeholder="Tell the agent what to do... (e.g. 'I want it to 10 RPM', 'make it less jerky')"
+                        onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendAgentPrompt(); }"
                         style="flex: 1; resize: none; background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-family: sans-serif; font-size: 13px;"></textarea>
                     <div style="display: flex; gap: 10px;">
                         <button onclick="sendAgentPrompt()"
@@ -788,6 +789,9 @@
                             Prompt</button>
                         <button onclick="startAgentTuner()"
                             style="flex: 1; padding: 8px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Start
+                            Agent</button>
+                        <button onclick="stopAgentTuner()"
+                            style="flex: 1; padding: 8px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Stop
                             Agent</button>
                     </div>
                 </div>
@@ -1086,6 +1090,11 @@
         function startAgentTuner() {
             fetch('/api/start_tuner', { method: 'POST' });
             document.getElementById('agentLogTerminal').innerText = 'Starting Agent Tuner...\n';
+        }
+
+        function stopAgentTuner() {
+            fetch('/api/stop_tuner', { method: 'POST' });
+            document.getElementById('agentLogTerminal').innerText += '\nStopping Agent Tuner...\n';
         }
 
         // Initialize connection status
