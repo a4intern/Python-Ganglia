@@ -47,6 +47,11 @@ MOTOR = _load_model()
 MAX_VOLTAGE  = MOTOR["max_voltage"]
 BRAKE_FRICTION = MOTOR["BRAKE_FRICTION"]  # legacy compat
 
+# Compute physically correct initial b0 from motor model: dω/dt = b0 * V [RPM/s per V]
+_b0_initial = MOTOR["Kt"] / (MOTOR["J"] * MOTOR["R"]) * (60.0 / (2 * math.pi))
+_b0_initial = max(1.0, min(150.0, _b0_initial))
+print(f"[mock_sim] Computed initial b0 = {_b0_initial:.2f} RPM/s/V from motor model")
+
 # ---------------------------------------------------------
 # Patching serial.tools.list_ports
 # ---------------------------------------------------------
@@ -86,9 +91,10 @@ sim_state = {
     "pid_integral": 0.0,
     "last_error": 0.0,
     
-    "adrc_wc": 10.0,
-    "adrc_b0": 50.0,
+    "adrc_wc": 3.0,
+    "adrc_b0": _b0_initial,
     "adrc_blend": 100,
+    "adrc_vel_filtered": 0.0,
     "adrc_z1": 0.0,
     "adrc_z2": 0.0,
     "adrc_z3": 0.0
@@ -101,6 +107,8 @@ state_lock = threading.Lock()
 # ---------------------------------------------------------
 # Simulation Physics Thread
 # ---------------------------------------------------------
+_ADRC_VEL_FILTER_ALPHA = 0.95  # IIR cutoff ~0.8 Hz; keeps controller noise below stiction with sigma0~8 RPM
+
 def physics_loop():
     dt = 0.01
     obs_velocity = 0.0
@@ -147,8 +155,8 @@ def physics_loop():
                         # 1st-Order System (Velocity Control)
                         beta1 = 2 * wo
                         beta2 = wo**2
-                        
-                        e = sim_state["adrc_z1"] - obs_velocity
+
+                        e = sim_state["adrc_z1"] - sim_state["adrc_vel_filtered"]
                         sim_state["adrc_z1"] += (sim_state["adrc_z2"] + b0 * applied_u - beta1 * e) * dt
                         sim_state["adrc_z2"] += (-beta2 * e) * dt
                         sim_state["adrc_z3"] = 0.0  # Not used in 1st order
@@ -160,7 +168,12 @@ def physics_loop():
                             adrc_voltage = (u0 - sim_state["adrc_z2"]) / b0
                         else:
                             adrc_voltage = 0
-                            
+
+                        if not math.isfinite(sim_state["adrc_z1"]) or not math.isfinite(sim_state["adrc_z2"]):
+                            sim_state["adrc_z1"] = obs_velocity
+                            sim_state["adrc_z2"] = 0.0
+                            adrc_voltage = 0.0
+
                     else:
                         # 2nd-Order System (Position Control)
                         beta1 = 3 * wo
@@ -180,7 +193,13 @@ def physics_loop():
                             adrc_voltage = (u0 - sim_state["adrc_z3"]) / b0
                         else:
                             adrc_voltage = 0
-                            
+
+                        if not math.isfinite(sim_state["adrc_z1"]) or not math.isfinite(sim_state["adrc_z2"]) or not math.isfinite(sim_state["adrc_z3"]):
+                            sim_state["adrc_z1"] = 0.0
+                            sim_state["adrc_z2"] = 0.0
+                            sim_state["adrc_z3"] = 0.0
+                            adrc_voltage = 0.0
+
                     adrc_voltage = max(min(adrc_voltage, MAX_VOLTAGE), -MAX_VOLTAGE)
                     
                     voltage = (1.0 - blend_ratio) * pid_voltage + blend_ratio * adrc_voltage
@@ -245,7 +264,17 @@ def physics_loop():
             omega += dom_dt * dt
             theta += omega * dt
 
-            # Write back state
+            # Write back state — reset to zero if physics produced NaN (e.g. extreme wc/b0)
+            if not math.isfinite(omega) or not math.isfinite(i_cur):
+                omega = 0.0
+                i_cur = 0.0
+                theta = sim_state["position"] * 2 * math.pi / 60.0
+                sim_state["adrc_z1"] = 0.0
+                sim_state["adrc_z2"] = 0.0
+                sim_state["adrc_z3"] = 0.0
+                sim_state["pid_integral"] = 0.0
+                sim_state["last_voltage"] = 0.0
+
             sim_state["current_A"]   = i_cur
             sim_state["current"]     = i_cur * 1000.0           # mA for telemetry
             sim_state["velocity"]    = omega * 60.0 / (2 * math.pi)  # rad/s → RPM
@@ -259,6 +288,12 @@ def physics_loop():
             sig = M["sigma0"] + M["sigma1"] * abs(sim_state["velocity"])
             obs_velocity = sim_state["velocity"] + random.gauss(0, sig)
             obs_current  = sim_state["current"]  + random.gauss(0, 2.0)
+
+            # Low-pass filter for ADRC observer input only (telemetry keeps raw noisy signal)
+            sim_state["adrc_vel_filtered"] = (
+                _ADRC_VEL_FILTER_ALPHA * sim_state["adrc_vel_filtered"]
+                + (1 - _ADRC_VEL_FILTER_ALPHA) * obs_velocity
+            )
             
             telemetry_history.append({
                 "time": time.time(),
@@ -292,7 +327,8 @@ class MockModbusClient:
     def connect(self):
         if self.port == "Virtual Motor":
             self.connected = True
-            sim_state["op_mode"] = -2  # default to velocity mode
+            sim_state["op_mode"] = 0   # open-loop, pwm_val=0 → zero voltage on start
+            sim_state["pwm_val"] = 0
             return True
         return False
 
@@ -302,9 +338,13 @@ class MockModbusClient:
     def read_input_registers(self, address, count, device_id):
         if address == 0 and count == 22:
             with state_lock:
-                vel_raw = max(-2147483648, min(2147483647, int(sim_state["velocity"] * 10.0)))
-                cur_raw = max(-2147483648, min(2147483647, int(sim_state["current"] / 4.698555425)))
-                target_raw = max(-2147483648, min(2147483647, int(sim_state["target_velocity"] * 10.0)))
+                def _safe_int(val, scale=1.0):
+                    v = val * scale
+                    return max(-2147483648, min(2147483647, int(v))) if math.isfinite(v) else 0
+
+                vel_raw    = _safe_int(sim_state["velocity"], 10.0)
+                cur_raw    = _safe_int(sim_state["current"], 1.0 / 4.698555425)
+                target_raw = _safe_int(sim_state["target_velocity"], 10.0)
                 
                 regs = [0] * 22
                 
@@ -341,7 +381,8 @@ class MockModbusClient:
                     sim_state["pid_integral"] = 0.0
                     sim_state["last_error"] = 0.0
                     sim_state["last_voltage"] = 0.0
-                    sim_state["ramped_target"] = sim_state["target_velocity"]
+                    sim_state["ramped_target"] = sim_state["velocity"]
+                    sim_state["adrc_vel_filtered"] = sim_state["velocity"]
                 
     def write_register(self, address, value, device_id):
         with state_lock:
@@ -371,8 +412,8 @@ class MockModbusClient:
                 if len(values) >= 8:
                     b = struct.pack("<8H", *values[:8])
                     wc, b0, ramp_time, _ = struct.unpack("<ffff", b)
-                    sim_state["adrc_wc"] = wc
-                    sim_state["adrc_b0"] = b0
+                    sim_state["adrc_wc"] = max(0.1, min(20.0, wc))
+                    sim_state["adrc_b0"] = max(0.1, min(150.0, b0))
 
 pymodbus.client.ModbusSerialClient = MockModbusClient
 

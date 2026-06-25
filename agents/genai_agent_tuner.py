@@ -6,7 +6,6 @@ import time
 import os
 import pathlib
 import requests
-from collections import deque
 from dotenv import load_dotenv
 from llm_backends import TuningResult, create_backend
 
@@ -27,8 +26,8 @@ except Exception as e:
 SYSTEM_PROMPT = """You are an expert control systems engineer autonomously tuning an ADRC (Active Disturbance Rejection Controller) for a brushless motor.
 
 ## ADRC Parameters
-- **wc** (Observer Bandwidth): bounds [1.0, 20.0]. Higher = faster disturbance rejection but amplifies sensor noise and causes oscillation. Start around 5.0.
-- **b0** (System Gain): bounds [1.0, 150.0]. Represents the motor's expected acceleration sensitivity. Too high → controller under-drives, motor stalls or barely moves. Too low → controller over-drives, oscillation or overshoot.
+- **wc** (Observer Bandwidth): bounds [1.0, 20.0]. Higher = faster disturbance rejection but amplifies sensor noise and causes oscillation.
+- **b0** (System Gain): bounds [1.0, 150.0]. Represents the motor's expected acceleration sensitivity. Too high → controller under-drives, stalls or barely moves. Too low → controller over-drives, oscillation or overshoot.
 - **ramp_time**: bounds [0.0, 5.0]. Use 0.0 for step response testing. Only increase if you want smooth acceleration profiles.
 
 ## Tuning Protocol
@@ -37,29 +36,73 @@ Observe the current performance and adjust ONE parameter at a time:
 
 | Symptom | Fix |
 |---|---|
-| Tracking error high (mean far from target) | Decrease b0 by 20–40% |
-| Stall / barely moves | Decrease b0 by 30–50% |
-| Oscillation high (stdev > 0.5 RPM) | Decrease wc by 20–30% |
+| Tracking error high (mean far from target) | Decrease b0 |
+| Stall / barely moves | Decrease b0 significantly |
+| Oscillation high (stdev > 0.5 RPM) | Decrease wc |
 | Error AND oscillation both high | Fix oscillation first (reduce wc), then tracking (reduce b0) |
 | Error low but response is sluggish | Increase wc by 20% |
 | After b0 decrease, motor now overshoots | Decrease wc slightly |
 
-Max adjustment: ±30% per step. Never change both wc AND b0 in the same step.
+## Step Size — Use Aggressive Steps When the Trend Is Clear
+
+**Do not inch toward the optimum.** If the same symptom has persisted for 2+ iterations, make a larger move:
+
+- First observation of a symptom: adjust 30–40%
+- Same symptom persists after adjustment: adjust 50–60%
+- Same symptom persists 3+ steps in the same direction: halve (or double) the parameter — move boldly
+
+If you have a **Prior Best** or **Best This Session** on record, use it as your anchor:
+- If current performance is worse than the best seen, return directly to the best-seen parameters first, then make small refinements from there.
+- Do not wander away from a known-good region — search around it.
+
+When the direction of improvement is clear (e.g., lowering b0 consistently reduces error), continue in that direction with confidence. You do not need to hedge.
 
 ## Target Velocity
-Do NOT change the target_velocity unless a USER INSTRUCTION explicitly asks you to switch targets or perform a step test. Keep the current target and tune from there.
+Do NOT change the target_velocity unless a USER INSTRUCTION explicitly asks you to switch targets or perform a step test.
 
 ## Key Insight on b0 at Low RPM
-At low RPM, motors almost always need very low b0 (target range: 1–10). If b0 > 20 and oscillation persists, it is almost certainly too high — halve it immediately. b0=50 at 5 RPM will always oscillate.
+At low RPM (≤ 10 RPM), b0 almost always needs to be very low (1–15). If b0 > 20 and oscillation persists, halve it immediately — do not reduce by only 20–30%. b0=50 at 5 RPM will always oscillate.
 
 ## User Instructions
-If a USER INSTRUCTION is provided, you MUST honor it exactly, including any override of target_velocity or parameters. After fulfilling it, resume the standard protocol.
+If a USER INSTRUCTION is provided, honor it exactly, including any override of target_velocity or parameters. After fulfilling it, resume the standard protocol.
 """
+
+
+def load_prior_best() -> dict | None:
+    """Scan all diagnostic logs and return the best wc/b0 ever found (lowest error+stdev)."""
+    best = None
+    for log_file in sorted(LOG_DIR.glob("agent_diagnostic_*.jsonl")):
+        try:
+            with open(log_file) as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    s = entry.get("stats", {})
+                    st = entry.get("state", {})
+                    error = s.get("tracking_error", 999)
+                    stdev = s.get("velocity_stdev", 999)
+                    score = error + stdev
+                    if best is None or score < best["score"]:
+                        best = {
+                            "score": score,
+                            "wc": st.get("wc", 0),
+                            "b0": st.get("b0", 0),
+                            "tracking_error": error,
+                            "velocity_stdev": stdev,
+                            "target": st.get("target", 0),
+                            "timestamp": entry.get("timestamp", ""),
+                        }
+        except Exception:
+            continue
+    return best
+
 
 async def measure_telemetry(duration=5.0):
     velocities = []
     currents = []
-    horizon = []  # raw time-series: [{t, velocity, z1, z2, z3}, ...]
+    horizon = []
     current_state = {}
     t0 = time.time()
 
@@ -153,10 +196,41 @@ def set_adrc(wc, b0, ramp=0.0, target=None):
         })
         log_to_ui(f"Setting target to: {target:.0f} RPM")
 
+
+def _build_trajectory_summary(session_history: list) -> str:
+    """Condense full session history into a readable trajectory table."""
+    if not session_history:
+        return "  (no history — first observation)"
+    lines = []
+    for h in session_history:
+        trend = ""
+        if h.get("delta_score") is not None:
+            trend = f" {'↑better' if h['delta_score'] < 0 else '↓worse' if h['delta_score'] > 0 else '→same'}"
+        lines.append(
+            f"  [{h['iter']:>2}] wc={h['wc']:.2f}, b0={h['b0']:.2f} | "
+            f"target={h['target']:+.0f} RPM → "
+            f"mean={h['mean']:+.2f}, stdev={h['stdev']:.2f}, error={h['error']:.2f}{trend}"
+        )
+    return "\n".join(lines)
+
+
 async def agent_loop():
     log_to_ui("Starting GenAI Agentic Tuner Loop...")
-    history: deque = deque(maxlen=6)
+
+    prior_best = load_prior_best()
+    if prior_best:
+        log_to_ui(
+            f"Prior best (from logs): wc={prior_best['wc']:.2f}, b0={prior_best['b0']:.2f} "
+            f"→ error={prior_best['tracking_error']:.2f}, stdev={prior_best['velocity_stdev']:.2f} "
+            f"@ target={prior_best['target']:.0f} RPM  [{prior_best['timestamp']}]"
+        )
+    else:
+        log_to_ui("No prior diagnostic logs found — starting fresh.")
+
+    session_history: list[dict] = []  # all observations this session
+    best_seen: dict | None = None      # best (wc, b0) found this session
     iteration = 0
+    prev_score: float | None = None
 
     await asyncio.sleep(2.0)
 
@@ -174,24 +248,65 @@ async def agent_loop():
         log_to_ui(f"State: target={state['target']} RPM, wc={state['wc']:.2f}, b0={state['b0']:.2f}")
         log_to_ui(f"Stats: mean={stats['velocity_mean']:.2f} RPM, stdev={stats['velocity_stdev']:.2f} RPM, error={stats['tracking_error']:.2f} RPM")
 
-        history.append({
-            "target": state["target"],
+        score = stats["tracking_error"] + stats["velocity_stdev"]
+        delta_score = (score - prev_score) if prev_score is not None else None
+        prev_score = score
+
+        if best_seen is None or score < best_seen["score"]:
+            best_seen = {
+                "score": score,
+                "wc": state["wc"],
+                "b0": state["b0"],
+                "tracking_error": stats["tracking_error"],
+                "velocity_stdev": stats["velocity_stdev"],
+                "iteration": iteration,
+            }
+
+        session_history.append({
+            "iter": iteration,
             "wc": state["wc"],
             "b0": state["b0"],
-            "velocity_mean": stats["velocity_mean"],
-            "velocity_stdev": stats["velocity_stdev"],
-            "tracking_error": stats["tracking_error"],
+            "target": state["target"],
+            "mean": stats["velocity_mean"],
+            "stdev": stats["velocity_stdev"],
+            "error": stats["tracking_error"],
+            "score": score,
+            "delta_score": delta_score,
         })
 
-        history_lines = ""
-        for i, h in enumerate(list(history)[:-1]):
-            history_lines += (
-                f"  [{i+1}] target={h['target']:+.0f} RPM → "
-                f"mean={h['velocity_mean']:+.2f}, stdev={h['velocity_stdev']:.2f}, error={h['tracking_error']:.2f} "
-                f"| wc={h['wc']:.2f}, b0={h['b0']:.2f}\n"
-            )
+        trajectory = _build_trajectory_summary(session_history[:-1])  # exclude current
 
-        prompt = f"""## Current ADRC State
+        best_session_line = (
+            f"wc={best_seen['wc']:.2f}, b0={best_seen['b0']:.2f} → "
+            f"error={best_seen['tracking_error']:.2f}, stdev={best_seen['velocity_stdev']:.2f} "
+            f"(iteration {best_seen['iteration']})"
+            if best_seen else "none yet"
+        )
+
+        prior_best_line = (
+            f"wc={prior_best['wc']:.2f}, b0={prior_best['b0']:.2f} → "
+            f"error={prior_best['tracking_error']:.2f}, stdev={prior_best['velocity_stdev']:.2f} "
+            f"@ target={prior_best['target']:.0f} RPM  [{prior_best['timestamp']}]"
+            if prior_best else "none"
+        )
+
+        consecutive_same_direction = 0
+        if len(session_history) >= 3:
+            recent = session_history[-3:]
+            deltas = [h["delta_score"] for h in recent if h["delta_score"] is not None]
+            if all(d > 0 for d in deltas):
+                consecutive_same_direction = len(deltas)  # getting worse
+
+        prompt = f"""## Prior Best (from previous sessions)
+{prior_best_line}
+
+## Best This Session
+{best_session_line}
+
+## Full Tuning Trajectory (oldest → most recent, not including current)
+{trajectory}
+
+## Current ADRC State
 target_velocity: {state['target']:+.0f} RPM | wc: {state['wc']:.2f} | b0: {state['b0']:.2f} | ramp_time: {state['ramp_time']:.2f}
 
 ## Current Observation (steady-state, last 5s after 3s settle)
@@ -201,11 +316,9 @@ Tracking Error:   {stats['tracking_error']:.2f} RPM  (|mean − target|)
 Current Mean:     {stats['current_mean']:.2f} mA
 Current Stdev:    {stats['current_stdev']:.2f} mA
 Sample count:     {stats['sample_count']}
+Performance score (error+stdev): {score:.2f}{f'  [{consecutive_same_direction} consecutive worsening steps — use a larger adjustment]' if consecutive_same_direction >= 2 else ''}
 
-## History (oldest → most recent, not including current)
-{history_lines.rstrip() if history_lines else "  (no history — first observation)"}
-
-Observe the current performance and tune parameters if needed. Do NOT change the target_velocity unless a USER INSTRUCTION explicitly requests it."""
+Observe the current performance, consider the full trajectory and prior knowledge above, and tune parameters accordingly. Do NOT change the target_velocity unless a USER INSTRUCTION explicitly requests it."""
 
         user_prompt = ""
         try:
