@@ -336,7 +336,13 @@
                 style="display: none; margin-top: 0; grid-template-columns: 1fr;"><canvas id="magChart"></canvas><canvas
                     id="phaseChart"></canvas></div>
 
-            <div id="agentLogContainer" style="display: none; margin-top: 15px; gap: 15px;">
+            <div id="agentResizer"
+                onmouseover="this.style.backgroundColor='#94a3b8'"
+                onmouseout="this.style.backgroundColor='#cbd5e1'"
+                style="display: none; height: 10px; cursor: row-resize; background-color: #cbd5e1; border-radius: 5px; margin-top: 15px; transition: background-color 0.2s;">
+            </div>
+
+            <div id="agentLogContainer" style="display: none; margin-top: 10px; gap: 15px; height: 30%; flex: none;">
                 <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
                     <textarea id="agentPromptInput"
                         placeholder="Tell the agent what to do... (e.g. 'I want it to 10 RPM', 'make it less jerky')"
@@ -355,7 +361,7 @@
                     </div>
                 </div>
                 <div id="agentLogTerminal"
-                    style="flex: 2; height: 180px; overflow-y: auto; background: #1e293b; color: #10b981; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border-radius: 8px; border: 1px solid #334155; white-space: pre-wrap; word-break: break-word;">
+                    style="flex: 2; height: 100%; min-height: 50px; overflow-y: auto; background: #1e293b; color: #10b981; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border-radius: 8px; border: 1px solid #334155; white-space: pre-wrap; word-break: break-word;">
                     Waiting for Agent logs...</div>
             </div>
         </div>
@@ -444,7 +450,9 @@
             document.getElementById('tab-' + tabPrefix).classList.add('active');
             document.getElementById('btn-' + tabPrefix).classList.add('active');
             const agentLogContainer = document.getElementById('agentLogContainer');
+            const agentResizer = document.getElementById('agentResizer');
             if (agentLogContainer) agentLogContainer.style.display = (tabPrefix === 'agent') ? 'flex' : 'none';
+            if (agentResizer) agentResizer.style.display = (tabPrefix === 'agent') ? 'block' : 'none';
             await fetch('/set_op_mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: opModeInt }) });
         }
 
@@ -953,6 +961,33 @@
         document.addEventListener('mouseup', function (e) {
             if (isGraphResizing) {
                 isGraphResizing = false;
+                document.body.style.cursor = 'default';
+            }
+        });
+
+        const agentResizer = document.getElementById('agentResizer');
+        const agentLogContainer = document.getElementById('agentLogContainer');
+        let isAgentResizing = false;
+
+        agentResizer.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            isAgentResizing = true;
+            document.body.style.cursor = 'row-resize';
+        });
+
+        document.addEventListener('mousemove', function (e) {
+            if (!isAgentResizing) return;
+            const containerRect = agentLogContainer.getBoundingClientRect();
+            const newHeight = containerRect.bottom - e.clientY;
+            if (newHeight > 100 && newHeight < window.innerHeight - 100) {
+                agentLogContainer.style.flex = 'none';
+                agentLogContainer.style.height = newHeight + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', function (e) {
+            if (isAgentResizing) {
+                isAgentResizing = false;
                 document.body.style.cursor = 'default';
             }
         });
