@@ -53,6 +53,18 @@ async def post_agent_log(req: AgentLog):
 active_agent_prompt = ""
 agent_tuner_process = None
 
+def kill_all_tuners():
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["wmic", "process", "where", "CommandLine like '%genai_agent_tuner.py%'", "call", "terminate"], capture_output=True)
+        else:
+            subprocess.run(["pkill", "-f", "genai_agent_tuner.py"], capture_output=True)
+    except Exception:
+        pass
+
+# Clean up any orphaned processes on startup
+kill_all_tuners()
+
 @app.post("/api/agent_prompt")
 async def post_agent_prompt(req: AgentPromptRequest):
     global active_agent_prompt
@@ -75,6 +87,7 @@ def start_tuner():
     if agent_tuner_process is not None and agent_tuner_process.poll() is None:
         agent_tuner_process.terminate()
         agent_tuner_process.wait()
+    kill_all_tuners()
     agent_tuner_process = subprocess.Popen([sys.executable, "genai_agent_tuner.py"])
     return {"status": "started", "pid": agent_tuner_process.pid}
 
@@ -85,8 +98,8 @@ def stop_tuner():
         agent_tuner_process.terminate()
         agent_tuner_process.wait()
         agent_tuner_process = None
-        return {"status": "stopped"}
-    return {"status": "not running"}
+    kill_all_tuners()
+    return {"status": "stopped"}
 
 # ----- SysID Status -----
 _sysid_status: dict = {"phase": "idle", "test": "", "progress": 0.0, "running": False}
