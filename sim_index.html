@@ -638,14 +638,10 @@
                 <p style="font-size: 13px; color: #475569;">Monitoring active parameters commanded by the background
                     tuner...</p>
                 <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px; overflow-x: hidden;">
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentTargetChart"></canvas>
-                    </div>
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentWcChart"></canvas>
-                    </div>
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentB0Chart"></canvas>
-                    </div>
-                    <div style="position: relative; height: 115px; width: 100%;"><canvas id="agentRampChart"></canvas>
-                    </div>
+                    <div class="chart-wrapper" style="height: 135px; min-height: 135px;"><canvas id="agentTargetChart"></canvas></div>
+                    <div class="chart-wrapper" style="height: 135px; min-height: 135px;"><canvas id="agentWcChart"></canvas></div>
+                    <div class="chart-wrapper" style="height: 135px; min-height: 135px;"><canvas id="agentB0Chart"></canvas></div>
+                    <div class="chart-wrapper" style="height: 135px; min-height: 135px;"><canvas id="agentRampChart"></canvas></div>
                 </div>
             </div>
 
@@ -1044,8 +1040,22 @@
         Chart.defaults.borderColor = 'rgba(0,0,0,0.05)';
         const createChart = (ctxId, label, color, yMin = null, yMax = null) => {
             const scales = {
-                x: { display: true },
-                y: { display: true }
+                x: {
+                    display: true,
+                    ticks: {
+                        font: {
+                            size: 10
+                        }
+                    }
+                },
+                y: {
+                    display: true,
+                    ticks: {
+                        font: {
+                            size: 10
+                        }
+                    }
+                }
             };
             if (yMin !== null) scales.y.min = yMin;
             if (yMax !== null) scales.y.max = yMax;
@@ -1053,7 +1063,21 @@
             return new Chart(document.getElementById(ctxId), {
                 type: 'line',
                 data: { labels: [], datasets: [{ label: label, borderColor: color, data: [], fill: false, pointRadius: 0, borderWidth: 2, tension: 0.1 }] },
-                options: { animation: false, responsive: true, maintainAspectRatio: false, scales: scales }
+                options: {
+                    animation: false,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    },
+                    scales: scales
+                }
             });
         };
 
