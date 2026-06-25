@@ -652,7 +652,7 @@ async def run_sysid(args):
     log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     log("  ✅ All excitation tests complete!")
     log(f"  Data saved to: {DATA_DIR.resolve()}")
-    log("  Next: run  .venv/bin/python3 model_fitter.py")
+    log("  Next: run  .venv/bin/python3 scripts/model_fitter.py")
     log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 if __name__ == "__main__":

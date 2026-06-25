@@ -8,7 +8,7 @@ from models import AgentLog, AgentPromptRequest, SysIDStatus
 from routers import ai, connection, control, telemetry
 
 app = FastAPI()
-UI_PATH = Path(__file__).parent / "index.html"
+UI_PATH = Path(__file__).parent / "templates" / "index.html"
 
 # Serve static files for CSS and JS
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -88,7 +88,7 @@ def start_tuner():
         agent_tuner_process.terminate()
         agent_tuner_process.wait()
     kill_all_tuners()
-    agent_tuner_process = subprocess.Popen([sys.executable, "genai_agent_tuner.py"])
+    agent_tuner_process = subprocess.Popen([sys.executable, str(Path("agents") / "genai_agent_tuner.py")])
     return {"status": "started", "pid": agent_tuner_process.pid}
 
 @app.post("/api/stop_tuner")

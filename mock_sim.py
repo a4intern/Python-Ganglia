@@ -372,7 +372,7 @@ if __name__ == "__main__":
     import pathlib
     from pydantic import BaseModel
     
-    main.UI_PATH = pathlib.Path(__file__).parent / "sim_index.html"
+    main.UI_PATH = pathlib.Path(__file__).parent / "templates" / "sim_index.html"
     
     class TuneAdrcReq(BaseModel):
         wc: float = None
