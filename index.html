@@ -315,9 +315,9 @@
             <div id="graphsWrapper" class="graphs-wrapper">
                 <div id="graphsLeftColumn" class="chart-col-left">
                     <div id="timeSeriesChartsLeft" class="chart-container" style="margin-top: 0; grid-template-columns: 1fr;">
-                        <canvas id="velChart"></canvas>
-                        <canvas id="accChart"></canvas>
-                        <canvas id="curChart"></canvas>
+                        <div class="chart-wrapper"><canvas id="velChart"></canvas></div>
+                        <div class="chart-wrapper"><canvas id="accChart"></canvas></div>
+                        <div class="chart-wrapper"><canvas id="curChart"></canvas></div>
                     </div>
                 </div>
 
@@ -325,9 +325,9 @@
 
                 <div id="graphsRightColumn" class="chart-col-right">
                     <div id="timeSeriesChartsRight" class="chart-container" style="margin-top: 0; grid-template-columns: 1fr;">
-                        <canvas id="z1Chart"></canvas>
-                        <canvas id="z2Chart"></canvas>
-                        <canvas id="z3Chart"></canvas>
+                        <div class="chart-wrapper"><canvas id="z1Chart"></canvas></div>
+                        <div class="chart-wrapper"><canvas id="z2Chart"></canvas></div>
+                        <div class="chart-wrapper"><canvas id="z3Chart"></canvas></div>
                     </div>
                 </div>
             </div>
@@ -339,15 +339,15 @@
             <div id="agentResizer"
                 onmouseover="this.style.backgroundColor='#94a3b8'"
                 onmouseout="this.style.backgroundColor='#cbd5e1'"
-                style="display: none; height: 10px; cursor: row-resize; background-color: #cbd5e1; border-radius: 5px; margin-top: 15px; transition: background-color 0.2s;">
+                style="display: none; height: 8px; cursor: row-resize; background-color: #cbd5e1; border-radius: 4px; margin-top: 5px; transition: background-color 0.2s;">
             </div>
 
-            <div id="agentLogContainer" style="display: none; margin-top: 10px; gap: 15px; height: 30%; flex: none;">
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+            <div id="agentLogContainer" style="display: none; margin-top: 5px; gap: 15px; height: 24%; flex: none;">
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; background: #1e293b; border: 1px solid #334155; padding: 12px; border-radius: 8px; height: 100%; box-sizing: border-box;">
                     <textarea id="agentPromptInput"
                         placeholder="Tell the agent what to do... (e.g. 'I want it to 10 RPM', 'make it less jerky')"
                         onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendAgentPrompt(); }"
-                        style="flex: 1; resize: none; background: #1e293b; color: #fff; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-family: sans-serif; font-size: 13px;"></textarea>
+                        style="flex: 1; resize: none; background: rgba(0,0,0,0.25); color: #fff; border: 1px solid #475569; border-radius: 6px; padding: 10px; font-family: sans-serif; font-size: 13px;"></textarea>
                     <div style="display: flex; gap: 10px;">
                         <button onclick="sendAgentPrompt()"
                             style="flex: 1; padding: 8px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Send
@@ -360,9 +360,17 @@
                             Agent</button>
                     </div>
                 </div>
-                <div id="agentLogTerminal"
-                    style="flex: 2; height: 100%; min-height: 50px; overflow-y: auto; background: #1e293b; color: #10b981; font-family: 'Courier New', monospace; font-size: 13px; padding: 12px; border-radius: 8px; border: 1px solid #334155; white-space: pre-wrap; word-break: break-word;">
-                    Waiting for Agent logs...</div>
+                <div style="flex: 2; display: flex; flex-direction: column; gap: 10px; background: #1e293b; border: 1px solid #334155; padding: 12px; border-radius: 8px; height: 100%; box-sizing: border-box;">
+                    <div id="agentLogTerminal"
+                        style="flex: 1; min-height: 50px; box-sizing: border-box; overflow-y: auto; background: rgba(0,0,0,0.25); color: #10b981; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; border-radius: 6px; border: 1px solid #475569; white-space: pre-wrap; word-break: break-word;">
+                        Waiting for Agent logs...</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #64748b; font-size: 13px; font-weight: bold; margin-left: 2px;">Agent Tuner Logs</span>
+                        <button onclick="document.getElementById('agentLogTerminal').innerHTML = 'Waiting for Agent logs...';"
+                            style="padding: 8px 16px; background: #475569; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Clear
+                            Logs</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
