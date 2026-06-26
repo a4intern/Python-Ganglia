@@ -327,6 +327,11 @@ async def agent_loop():
             "mode": "velocity", "p": 0, "i": 0, "d": 0, "gain_output": 1.0, "limit_i": 30000, "blend": 100
         }, timeout=1.0)
         
+        # Reset target velocity to 0 RPM explicitly on startup to prevent sudden motor spin-up on stale speeds
+        requests.post(f"{BASE_URL}/set_target", json={
+            "mode": "velocity", "value": 0, "min_limit": -4000, "max_limit": 4000
+        }, timeout=1.0)
+        
         # Start motor
         requests.post(f"{BASE_URL}/start", timeout=1.0)
         log_to_ui("Motor connection, ADRC mode (-2), blend (100%), and drive successfully initialized.")

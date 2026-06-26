@@ -83,7 +83,8 @@ def clear_agent_prompt():
 
 @app.post("/api/start_tuner")
 def start_tuner():
-    global agent_tuner_process
+    global agent_tuner_process, active_agent_prompt
+    active_agent_prompt = ""  # Clear stale prompt overrides on startup
     if agent_tuner_process is not None and agent_tuner_process.poll() is None:
         agent_tuner_process.terminate()
         agent_tuner_process.wait()
@@ -106,7 +107,8 @@ def start_tuner():
 
 @app.post("/api/stop_tuner")
 def stop_tuner():
-    global agent_tuner_process
+    global agent_tuner_process, active_agent_prompt
+    active_agent_prompt = ""  # Clear stale prompt overrides on shutdown
     if agent_tuner_process is not None and agent_tuner_process.poll() is None:
         agent_tuner_process.terminate()
         agent_tuner_process.wait()

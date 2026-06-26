@@ -1126,7 +1126,7 @@
             const res = await fetch('/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ port: port, device_id: 48 }) });
             const data = await res.json();
             statusSpan.innerText = data.message; statusSpan.style.color = data.status === 'connected' ? "green" : "red";
-            if (data.status === 'connected') { isConnected = true; connBtn.innerText = "Disconnect"; connBtn.classList.add('danger-btn'); startTelemetry(); await switchTab('vel', -2); await setTarget('velocity', 'valVel', -4000, 4000); }
+            if (data.status === 'connected') { isConnected = true; connBtn.innerText = "Disconnect"; connBtn.classList.add('danger-btn'); startTelemetry(); }
             connBtn.disabled = false;
         }
 
