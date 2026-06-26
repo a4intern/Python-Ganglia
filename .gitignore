@@ -16,3 +16,4 @@ sysid_report/
 scratch/
 logs/agent_diagnostic_20260625.jsonl
 logs/agent_diagnostic_20260626.jsonl
+logs/tuner_subprocess.log
