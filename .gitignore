@@ -7,8 +7,12 @@ ENV/
 env/
 .env
 .DS_Store
+.log
+.jsonl
 
 # Generated data and reports
 sysid_data/
 sysid_report/
 scratch/
+logs/agent_diagnostic_20260625.jsonl
+logs/agent_diagnostic_20260626.jsonl

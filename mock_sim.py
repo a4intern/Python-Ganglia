@@ -107,12 +107,13 @@ state_lock = threading.Lock()
 # ---------------------------------------------------------
 # Simulation Physics Thread
 # ---------------------------------------------------------
-_ADRC_VEL_FILTER_ALPHA = 0.95  # IIR cutoff ~0.8 Hz; keeps controller noise below stiction with sigma0~8 RPM
+_ADRC_VEL_FILTER_ALPHA = 0.85  # IIR cutoff ~2.6 Hz; reduces loop phase lag while keeping sufficient filtering
 
 def physics_loop():
     dt = 0.01
     obs_velocity = 0.0
     obs_current = 0.0
+    obs_position = 0.0
     while True:
         with state_lock:
             mode = sim_state["op_mode"]
@@ -288,6 +289,7 @@ def physics_loop():
             sig = M["sigma0"] + M["sigma1"] * abs(sim_state["velocity"])
             obs_velocity = sim_state["velocity"] + random.gauss(0, sig)
             obs_current  = sim_state["current"]  + random.gauss(0, 2.0)
+            obs_position = sim_state["position"] + random.gauss(0, 0.05)
 
             # Low-pass filter for ADRC observer input only (telemetry keeps raw noisy signal)
             sim_state["adrc_vel_filtered"] = (
@@ -371,6 +373,11 @@ class MockModbusClient:
             sim_state["coils"][address] = value
             if address == 11 and value:
                 sim_state["position"] = 0.0
+            if address == 23 and value:
+                sim_state["adrc_z1"] = sim_state["velocity"]
+                sim_state["adrc_z2"] = 0.0
+                sim_state["adrc_z3"] = 0.0
+                sim_state["adrc_vel_filtered"] = sim_state["velocity"]
             if address == 13:
                 sim_state["drive_enabled"] = bool(value)
                 if bool(value):
@@ -412,7 +419,7 @@ class MockModbusClient:
                 if len(values) >= 8:
                     b = struct.pack("<8H", *values[:8])
                     wc, b0, ramp_time, _ = struct.unpack("<ffff", b)
-                    sim_state["adrc_wc"] = max(0.1, min(20.0, wc))
+                    sim_state["adrc_wc"] = max(0.1, min(50.0, wc))
                     sim_state["adrc_b0"] = max(0.1, min(150.0, b0))
 
 pymodbus.client.ModbusSerialClient = MockModbusClient
@@ -431,7 +438,7 @@ if __name__ == "__main__":
         
     @main.app.post("/api/tune_adrc")
     async def tune_adrc_endpoint(req: TuneAdrcReq):
-        from modbus_handler import agent_state, agent_state_lock
+        from modbus_handler import agent_state, agent_state_lock, active_ws_queues, active_ws_queues_lock
         with state_lock:
             if req.wc is not None: sim_state["adrc_wc"] = req.wc
             if req.b0 is not None: sim_state["adrc_b0"] = req.b0
@@ -448,8 +455,8 @@ if __name__ == "__main__":
             if req.wc is not None: agent_state["agent_wc"] = req.wc
             if req.b0 is not None: agent_state["agent_b0"] = req.b0
 
-        with main.active_ws_queues_lock:
-            for q in main.active_ws_queues:
+        with active_ws_queues_lock:
+            for q in active_ws_queues:
                 try: q.put_nowait(update_msg)
                 except: pass
         return {"status": "success", "state": update_msg}

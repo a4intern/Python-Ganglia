@@ -1,4 +1,9 @@
+@import url('https://cdn.jsdelivr.net/fontsource/fonts/google-sans@latest/index.css');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+*, button, input, select, textarea {
+    font-family: 'Google Sans', 'Product Sans', 'Inter', sans-serif;
+}
 
         body {
             font-family: 'Google Sans', 'Product Sans', 'Inter', sans-serif;
