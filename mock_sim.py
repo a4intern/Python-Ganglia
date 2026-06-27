@@ -420,7 +420,7 @@ class MockModbusClient:
                     b = struct.pack("<8H", *values[:8])
                     wc, b0, ramp_time, _ = struct.unpack("<ffff", b)
                     sim_state["adrc_wc"] = max(0.1, min(50.0, wc))
-                    sim_state["adrc_b0"] = max(0.1, min(150.0, b0))
+                    sim_state["adrc_b0"] = max(0.1, min(200000.0, b0))
 
 pymodbus.client.ModbusSerialClient = MockModbusClient
 

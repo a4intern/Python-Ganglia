@@ -27,22 +27,35 @@ except Exception as e:
 SYSTEM_PROMPT = """You are an expert control systems engineer autonomously tuning an ADRC (Active Disturbance Rejection Controller) for a brushless motor.
 
 ## ADRC Parameters
-- **wc** (Observer Bandwidth): bounds [1.0, 50.0]. Higher = faster disturbance rejection but amplifies sensor noise and causes oscillation.
-- **b0** (System Gain): bounds [1.0, 150.0]. Represents the motor's expected acceleration sensitivity. Too high → controller under-drives (sluggish rise time, large steady-state tracking error, or stall). Too low → controller over-drives (causes high overshoot and oscillation).
+- **wc** (Observer Bandwidth): bounds [1.0, 50.0]. Higher = faster disturbance rejection but amplifies sensor noise and causes oscillation. In systems with stiction and deadzones, wc needs to be sufficiently high (typically 8.0 to 25.0) to overcome stiction quickly. We will start wc from a small value (typically 2.0) and systematically raise it to overcome stiction. Too low wc (< 5.0) will cause sluggish response and large steady-state tracking errors, which should NOT be mistaken for b0 issues.
+- **b0** (System Gain): bounds [1.0, 200000.0]. Represents the nominal input gain from voltage to acceleration. Theoretically b0 = Kt/(J·R) × 60/(2π) ≈ 9.31 RPM/s/V for this motor, but that value is far too low — it saturates the 24V rail at any meaningful wc. The correct empirical working range is **b0 ∈ [80, 150]**; the best historically observed value for this motor is b0 ≈ 105–120. Too high (>200) → output voltage is de-rated so severely the motor under-drives and stalls. Too low (<30) → output voltage exceeds 24V, controller saturates and overshoots badly. Start at b0 = 120 and adjust from there.
 - **ramp_time**: bounds [0.0, 5.0]. Use 0.0 for step response testing. Only increase if you want smooth acceleration profiles.
 
-## Tuning Protocol
+## IDLE GUARD — NO DATA, NO CHANGE (HIGHEST PRIORITY)
 
-Observe the current performance (both transient step response metrics and steady-state error/oscillation) and adjust ONE parameter at a time:
+If the current observation shows ALL of the following:
+- target_velocity = 0 RPM
+- tracking_error ≈ 0 (motor at rest, correctly)
+- velocity_stdev ≈ 0
+- No step response detected
+
+Then the motor is **simply at rest and idle** — this is NOT a stall, and it provides **zero information** about controller performance or the correct value of b0 or wc.
+
+**Required action when idle at 0 RPM:** Output IDENTICAL wc and b0 as the current state. Do NOT change any parameters. Do NOT use the "Prior Best" values as a reason to change parameters — prior best obtained at 0 RPM target is also uninformative. Wait until a non-zero target generates real step-response data before adjusting anything.
+
+## Tuning Protocol (applies only when target ≠ 0 or a step was detected)
+
+Observe the current performance (both transient step response metrics and steady-state error/oscillation) and adjust parameters based on these rules:
 
 | Symptom | Fix |
 |---|---|
 | High overshoot (peak velocity exceeds target) | Increase b0 (too low b0 causes overdrive/overshoot) or decrease wc slightly |
 | Sluggish rise time / settling time is slow | Decrease b0 slightly or increase wc by 20% |
-| Tracking error high (steady-state mean far from target) | Decrease b0 |
-| Stall / barely moves | Decrease b0 significantly |
-| Oscillation high (steady-state stdev > 0.5 RPM) | Decrease wc |
-| Error AND oscillation both high | Fix oscillation first (reduce wc), then tracking (reduce b0) |
+| Under-driving (steady-state mean is significantly below target) | Decrease b0 (to increase control effort/drive) or increase wc by 20% |
+| Over-driving (steady-state mean is significantly above target) | Increase b0 (to decrease control effort/drive) or decrease wc slightly |
+| Stall / barely moves (target ≠ 0 but motor does not respond) | Decrease b0 significantly |
+| Oscillation high (steady-state stdev > 0.5 RPM) | Decrease wc, or increase b0 if wc is already low |
+| Error AND oscillation both high | Fix oscillation first (reduce wc), then tracking (adjust b0) |
 | Error low but response is sluggish | Increase wc by 20% |
 
 ## Analyzing Transient Response Trends
@@ -52,25 +65,23 @@ You must track and compare the step response transient metrics across iterations
 - **Overshoot (Os)**: Peak speed exceeding target. If Os is high or increasing, you MUST increase b0 or decrease wc slightly.
 Compare these transient metrics to previous iterations to guide your adjustments, rather than focusing only on steady-state mean/error/stdev.
 
-## Step Size - Use Aggressive Steps When the Trend Is Clear
+## Overcoming Local Minima & Noisy Evaluation (CRITICAL)
 
-**Do not inch toward the optimum.** If the same symptom has persisted for 2+ iterations, make a larger move:
-
-- First observation of a symptom: adjust 30-40%
-- Same symptom persists after adjustment: adjust 50-60%
-- Same symptom persists 3+ steps in the same direction: halve (or double) the parameter - move boldly
-
-If you have a **Prior Best** or **Best This Session** on record, use it as your anchor:
-- If current performance is worse than the best seen, return directly to the best-seen parameters first, then make small refinements from there.
-- Do not wander away from a known-good region - search around it.
-
-When the direction of improvement is clear (e.g., lowering b0 consistently reduces error), continue in that direction with confidence. You do not need to hedge.
+1. **Do Not Panic on Noise**: The motor and telemetry are noisy. A small change in parameters might cause a slight, temporary worsening of the performance score (error + stdev) due to noise or transient fluctuations.
+2. **Commit to Exploration (Hypothesis-Driven)**: Formulate a tuning hypothesis (e.g. "decreasing b0 should increase drive and reduce steady-state error") and commit to exploring that direction for up to 3 consecutive steps before making a final judgment. Do not immediately revert to the "Prior Best" or "Best This Session" after a single slightly worse step.
+3. **Only Revert if Clearly Worse**: Only revert to the known-best parameters if:
+   - A step causes significant degradation (e.g., score worsens by > 30%).
+   - The system becomes unstable (stdev > 2.0 RPM).
+   - The motor stalls (target ≠ 0 but no movement).
+   Otherwise, continue exploring the current direction to establish a clear trend.
+4. **Step Size**:
+   - First observation of a symptom: adjust 30-40%
+   - Same symptom persists after adjustment: adjust 50-60%
+   - Same symptom persists 3+ steps in the same direction: halve (or double) the parameter - move boldly
+5. **Step-Down for Mismatch**: ONLY apply when target ≠ 0 AND a step response was actually observed AND the motor is stalled or severely under-driving. The theoretical b0 for this motor is ~9 RPM/s/V but the working range is 80–150 due to output de-rating. If the motor under-drives (mean << target) and b0 > 150, cut b0 in half. If b0 is already ≤ 150 and the motor stalls, try b0 = 90–105 first. NEVER apply scaling at target = 0 RPM.
 
 ## Target Velocity
 Do NOT change the target_velocity unless a USER INSTRUCTION explicitly asks you to switch targets or perform a step test.
-
-## Key Insight on b0 at Low RPM
-At low RPM (<= 10 RPM), b0 almost always needs to be very low (1-15). If b0 > 20 and oscillation persists, halve it immediately - do not reduce by only 20-30%. b0=50 at 5 RPM will always oscillate.
 
 ## User Instructions
 If a USER INSTRUCTION is provided, honor it exactly, including any override of target_velocity or parameters. After fulfilling it, resume the standard protocol.
@@ -78,7 +89,11 @@ If a USER INSTRUCTION is provided, honor it exactly, including any override of t
 
 
 def load_prior_best() -> dict | None:
-    """Scan all diagnostic logs and return the best wc/b0 ever found (lowest error+stdev)."""
+    """Scan all diagnostic logs and return the best wc/b0 ever found (lowest error+stdev).
+
+    Excludes idle-at-zero entries (target=0, error≈0, stdev≈0) because they are trivially
+    perfect and carry no information about actual controller performance.
+    """
     best = None
     for log_file in sorted(LOG_DIR.glob("agent_diagnostic_*.jsonl")):
         try:
@@ -90,17 +105,22 @@ def load_prior_best() -> dict | None:
                         continue
                     s = entry.get("stats", {})
                     st = entry.get("state", {})
+                    target = st.get("target", 0)
                     error = s.get("tracking_error", 999)
                     stdev = s.get("velocity_stdev", 999)
-                    score = error + stdev
-                    if best is None or score < best["score"]:
+                    # Skip idle-at-zero: trivially perfect and carries no tuning signal.
+                    if abs(target) < 1.0 and (error + stdev) < 0.05:
+                        continue
+                    # Normalize by target magnitude so 5 RPM and 100 RPM results are comparable.
+                    norm_score = (error + stdev) / abs(target) if abs(target) >= 1.0 else 999.0
+                    if best is None or norm_score < best["score"]:
                         best = {
-                            "score": score,
+                            "score": norm_score,
                             "wc": st.get("wc", 0),
                             "b0": st.get("b0", 0),
                             "tracking_error": error,
                             "velocity_stdev": stdev,
-                            "target": st.get("target", 0),
+                            "target": target,
                             "timestamp": entry.get("timestamp", ""),
                             "rise_time": s.get("rise_time"),
                             "settling_time": s.get("settling_time"),
@@ -263,7 +283,7 @@ def log_to_ui(msg: str):
 
 def set_adrc(wc, b0, ramp=0.0, target=None):
     wc = max(1.0, min(50.0, float(wc)))
-    b0 = max(1.0, min(150.0, float(b0)))
+    b0 = max(1.0, min(200000.0, float(b0)))
     ramp = max(0.0, min(5.0, float(ramp)))
     log_to_ui(f"Applying: wc={wc:.2f}, b0={b0:.2f}, ramp={ramp:.2f}")
     requests.post(f"{BASE_URL}/set_adrc", json={
@@ -306,6 +326,45 @@ def _build_trajectory_summary(session_history: list) -> str:
     return "\n".join(lines)
 
 
+def compute_performance_score(horizon: list, state: dict, stats: dict) -> float:
+    """ITAE-based composite metric (dimensionless, lower = better).
+
+    M = ITAE / target² + stdev / |target| + 0.2 * min(pct_overshoot/100, 3.0)
+
+    Returns inf when at idle (target=0 or no horizon) — prevents trivially-zero
+    idle observations from polluting best-seen tracking.
+
+    Why ITAE / target²:
+    - ITAE = ∫ t·|e(t)| dt penalises slow settling more than fast transients.
+    - Dividing by target² makes the score dimensionless and equal-weight across
+      different target magnitudes (5 RPM vs 100 RPM both on the same scale).
+    """
+    target = state.get("target", 0.0)
+    if abs(target) < 0.1 or not horizon:
+        return float("inf")
+
+    # Step onset: first sample where |velocity| ≥ 5% of |target|
+    step_t0 = horizon[0]["t"]
+    for pt in horizon:
+        if abs(pt.get("velocity", 0.0)) >= 0.05 * abs(target):
+            step_t0 = pt["t"]
+            break
+
+    ITAE = 0.0
+    for i in range(len(horizon) - 1):
+        t = horizon[i]["t"]
+        dt = horizon[i + 1]["t"] - t
+        tau = max(0.0, t - step_t0)
+        e = target - horizon[i].get("velocity", 0.0)
+        ITAE += tau * abs(e) * dt
+
+    ITAE_norm = ITAE / (target ** 2)
+    stdev_norm = stats["velocity_stdev"] / abs(target)
+    overshoot_norm = min(stats.get("pct_overshoot", 0.0) / 100.0, 3.0)
+
+    return ITAE_norm + stdev_norm + 0.2 * overshoot_norm
+
+
 async def agent_loop():
     log_to_ui("Starting GenAI Agentic Tuner Loop...")
 
@@ -334,6 +393,8 @@ async def agent_loop():
         
         # Start motor
         requests.post(f"{BASE_URL}/start", timeout=1.0)
+        # Initialize wc and b0 to target initial values
+        set_adrc(3.0, 120.0)
         log_to_ui("Motor connection, ADRC mode (-2), blend (100%), and drive successfully initialized.")
     except Exception as e:
         log_to_ui(f"Warning: Motor initialization failed: {e}")
@@ -375,11 +436,13 @@ async def agent_loop():
         else:
             log_to_ui(f"Stats (Transient): No speed step change detected (constant target).")
 
-        score = stats["tracking_error"] + stats["velocity_stdev"]
-        delta_score = (score - prev_score) if prev_score is not None else None
-        prev_score = score
+        score = compute_performance_score(horizon, state, stats)
+        finite_score = score if score != float("inf") else None
+        delta_score = (finite_score - prev_score) if (finite_score is not None and prev_score is not None) else None
+        if finite_score is not None:
+            prev_score = finite_score
 
-        if best_seen is None or score < best_seen["score"]:
+        if finite_score is not None and (best_seen is None or finite_score < best_seen["score"]):
             best_seen = {
                 "score": score,
                 "wc": state["wc"],
@@ -414,7 +477,7 @@ async def agent_loop():
 
         best_session_line = (
             f"wc={best_seen['wc']:.2f}, b0={best_seen['b0']:.2f} -> "
-            f"error={best_seen['tracking_error']:.2f}, stdev={best_seen['velocity_stdev']:.2f}"
+            f"error={best_seen['tracking_error']:.2f} RPM, stdev={best_seen['velocity_stdev']:.2f} RPM, score={best_seen['score']:.4f}"
             + (f", Tr={best_seen['rise_time']:.2f}s, Ts={best_seen['settling_time']:.2f}s, Os={best_seen['overshoot']:.1f} RPM ({best_seen['pct_overshoot']:.1f}%)" if best_seen.get('rise_time') is not None else "")
             + f" (iteration {best_seen['iteration']})"
             if best_seen else "none yet"
@@ -467,7 +530,7 @@ Tracking Error (steady-state):   {stats['tracking_error']:.2f} RPM  (|mean − t
 Current Mean (steady-state):     {stats['current_mean']:.2f} mA
 Current Stdev (steady-state):    {stats['current_stdev']:.2f} mA
 Steady-state sample count:       {stats['sample_count']}
-Performance score (error+stdev): {score:.2f}{f'  [{consecutive_same_direction} consecutive worsening steps — use a larger adjustment]' if consecutive_same_direction >= 2 else ''}
+Performance score (ITAE/target²+stdev/target): {f'{score:.4f}' if score != float('inf') else 'N/A (idle)'}{f'  [{consecutive_same_direction} consecutive worsening steps — use a larger adjustment]' if consecutive_same_direction >= 2 else ''}
 
 Observe the current performance (both transient rise/settling time and steady-state error/oscillation), consider the full trajectory and prior knowledge above, and tune parameters accordingly. Do NOT change the target_velocity unless a USER INSTRUCTION explicitly requests it."""
 
@@ -478,6 +541,27 @@ Observe the current performance (both transient rise/settling time and steady-st
                 user_prompt = r.json().get("prompt", "")
         except Exception:
             pass
+
+        # Inject an idle guard directly into the user prompt when there is nothing to learn.
+        # This is belt-and-suspenders on top of the system prompt rule: if the motor is
+        # simply at rest at 0 RPM (not stalled — just idle), we have zero signal to tune on.
+        # Any parameter change would be arbitrary, so we block it explicitly here.
+        is_idle_at_zero = (
+            abs(state["target"]) < 1.0
+            and stats["tracking_error"] < 0.05
+            and stats["velocity_stdev"] < 0.05
+            and abs(stats["step_size"]) <= 5.0
+        )
+        if is_idle_at_zero:
+            prompt += (
+                "\n\n*** IDLE GUARD (SYSTEM ENFORCED) ***\n"
+                "The motor is at rest at 0 RPM target with zero error. "
+                "This is correct idle behaviour — NOT a stall. "
+                "There is no step-response data to tune from. "
+                "You MUST output the SAME wc and b0 as the current state. "
+                "Do NOT change any parameters.\n"
+                "*************************************\n"
+            )
 
         if user_prompt:
             prompt += f"\n\n*** USER INSTRUCTION (OVERRIDE — honor this exactly) ***\n{user_prompt}\n*****************************************************\n"

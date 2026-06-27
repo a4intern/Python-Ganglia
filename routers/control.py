@@ -61,6 +61,9 @@ def set_op_mode(req: OpModeRequest):
             restore_val_58 = struct.unpack("<2H", struct.pack("<I", 0))
             modbus_client.write_registers(58, list(restore_val_58), device_id=device_id)
 
+    with agent_state_lock:
+        agent_state["motor_running"] = False
+
     return {"status": "success"}
 
 @router.post("/set_pid")
@@ -149,6 +152,8 @@ def start_drive():
             return {"error": "Not connected"}
         modbus_client.write_coil(13, True, device_id=device_id)
         modbus_client.write_coil(3,  True, device_id=device_id)
+    with agent_state_lock:
+        agent_state["motor_running"] = True
     return {"status": "success"}
 
 @router.post("/set_pwm")
@@ -161,6 +166,8 @@ def set_pwm(req: PWMRequest):
         modbus_client.write_coil(3,  True, device_id=device_id)
         val = struct.unpack("<H", struct.pack("<h", req.value))[0]
         modbus_client.write_register(ADDR_PWM_VAL, val, device_id=device_id)
+    with agent_state_lock:
+        agent_state["motor_running"] = True
     return {"status": "success"}
 
 @router.post("/stop")
@@ -171,6 +178,8 @@ def stop_drive():
             return {"error": "Not connected"}
         modbus_client.write_coil(13, False, device_id=device_id)
         modbus_client.write_coil(3,  False, device_id=device_id)
+    with agent_state_lock:
+        agent_state["motor_running"] = False
     return {"status": "success"}
 
 @router.post("/set_sysid")

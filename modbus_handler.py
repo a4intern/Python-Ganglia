@@ -21,6 +21,7 @@ agent_state = {
     "agent_wc": 10.0,
     "agent_b0": 1.0,
     "agent_ramp": 2.0,
+    "motor_running": False,
 }
 agent_state_lock = threading.Lock()
 
@@ -40,13 +41,19 @@ def connect_modbus(port: str, device_id: int) -> bool:
             baudrate=2000000,
             timeout=0.2,
         )
-        return modbus_client.connect()
+        success = modbus_client.connect()
+    if success:
+        with agent_state_lock:
+            agent_state["motor_running"] = False
+    return success
 
 def disconnect_modbus():
     global modbus_client
     with modbus_lock:
         if modbus_client and modbus_client.connected:
             modbus_client.close()
+    with agent_state_lock:
+        agent_state["motor_running"] = False
 
 def is_connected() -> bool:
     with modbus_lock:
@@ -102,6 +109,7 @@ def modbus_polling_worker():
                     "agent_wc": agent_state["agent_wc"],
                     "agent_b0": agent_state["agent_b0"],
                     "agent_ramp": agent_state["agent_ramp"],
+                    "motor_running": agent_state["motor_running"],
                 }
 
             with active_ws_queues_lock:
