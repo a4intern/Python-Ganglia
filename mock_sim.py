@@ -262,8 +262,8 @@ def physics_loop():
                 i_cur += di_dt * dt
                 
             i_cur = max(min(i_cur, 30.0), -30.0)  # hardware current limit (A)
+            theta += omega * dt   # use omega BEFORE updating (explicit Euler)
             omega += dom_dt * dt
-            theta += omega * dt
 
             # Write back state — reset to zero if physics produced NaN (e.g. extreme wc/b0)
             if not math.isfinite(omega) or not math.isfinite(i_cur):
