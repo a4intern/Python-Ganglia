@@ -65,10 +65,16 @@ def motor_init(port: str = "Virtual Motor"):
     time.sleep(0.5)
 
 
-def _apply_adrc(wc: float, b0: float):
+def _apply_adrc(wc: float, b0: float, wo: float = None, filter_alpha: float = None, dist_alpha: float = None, eso_alpha: float = None, eso_delta: float = None):
     _post("/set_pid", {"mode": "velocity", "p": 0, "i": 0, "d": 0,
                        "gain_output": 1.0, "limit_i": 30000, "blend": 100})
-    _post("/set_adrc", {"mode": "velocity", "wc": wc, "b0": b0, "ramp_time": 0.0})
+    payload = {"mode": "velocity", "wc": wc, "b0": b0, "ramp_time": 0.0}
+    if wo is not None: payload["wo"] = wo
+    if filter_alpha is not None: payload["filter_alpha"] = filter_alpha
+    if dist_alpha is not None: payload["dist_alpha"] = dist_alpha
+    if eso_alpha is not None: payload["eso_alpha"] = eso_alpha
+    if eso_delta is not None: payload["eso_delta"] = eso_delta
+    _post("/set_adrc", payload)
 
 
 def _apply_pid(p: float, i: float, d: float):
@@ -160,6 +166,10 @@ def run_trial(apply_fn, targets: list, settle_s: float, capture_s: float) -> flo
     apply_fn()
     scores = []
     for tgt in targets:
+        try:
+            _post("/api/reset")
+        except Exception:
+            pass
         _set_target(0)
         time.sleep(settle_s)
         _set_target(tgt)
@@ -176,14 +186,19 @@ def run_trial(apply_fn, targets: list, settle_s: float, capture_s: float) -> flo
 
 def make_adrc_objective(targets, settle_s, capture_s):
     def objective(trial: optuna.Trial) -> float:
-        wc = trial.suggest_float("wc", 1.0, 25.0)
+        wc = trial.suggest_float("wc", 1.0, 15.0)
+        wo = trial.suggest_float("wo", wc * 0.5, wc * 4.0)
         # b0 must satisfy b0 > wc * max_target / V_MAX to avoid constant saturation.
         # We search log-uniformly over a wide range; Optuna learns the constraint.
         b0 = trial.suggest_float("b0", 10.0, 800.0, log=True)
+        filter_alpha = trial.suggest_float("filter_alpha", 0.7, 0.98)
+        dist_alpha = trial.suggest_float("dist_alpha", 0.5, 0.98)
+        eso_alpha = trial.suggest_float("eso_alpha", 0.1, 1.0)
+        eso_delta = trial.suggest_float("eso_delta", 0.01, 10.0)
 
         # Warn: if b0 is very small relative to wc/target, voltage will saturate.
         # Let the penalty from a stalled/wild trial guide Optuna away from this.
-        return run_trial(lambda: _apply_adrc(wc, b0), targets, settle_s, capture_s)
+        return run_trial(lambda: _apply_adrc(wc, b0, wo, filter_alpha, dist_alpha, eso_alpha, eso_delta), targets, settle_s, capture_s)
     return objective
 
 
@@ -290,10 +305,9 @@ def main():
             callbacks=[_make_callback("ADRC", args.trials)],
             show_progress_bar=False,
         )
-        print()  # newline after \r progress
         best_adrc = adrc_study.best_params
         best_adrc_score = adrc_study.best_value
-        print(f"\n  Best ADRC:  wc={best_adrc['wc']:.3f}  b0={best_adrc['b0']:.2f}")
+        print(f"\n  Best ADRC:  wc={best_adrc['wc']:.3f}  wo={best_adrc.get('wo', 3*best_adrc['wc']):.3f}  b0={best_adrc['b0']:.2f}  fa={best_adrc.get('filter_alpha', 0.85):.3f}  da={best_adrc.get('dist_alpha', 0.90):.3f}  ea={best_adrc.get('eso_alpha', 0.75):.3f}  ed={best_adrc.get('eso_delta', 1.0):.3f}")
         print(f"  Score: {best_adrc_score:.5f}")
 
     # -------------------------------------------------------------------
@@ -329,7 +343,14 @@ def main():
     # -------------------------------------------------------------------
     _set_target(0)
     if best_adrc:
-        _apply_adrc(best_adrc["wc"], best_adrc["b0"])
+        _apply_adrc(
+            best_adrc["wc"], best_adrc["b0"],
+            best_adrc.get("wo"),
+            best_adrc.get("filter_alpha"),
+            best_adrc.get("dist_alpha"),
+            best_adrc.get("eso_alpha"),
+            best_adrc.get("eso_delta")
+        )
 
     # -------------------------------------------------------------------
     # Summary
@@ -338,7 +359,7 @@ def main():
     print(" Optimization complete")
     print(f"{'='*60}")
     if best_adrc:
-        print(f"  ADRC: wc={best_adrc['wc']:.3f}  b0={best_adrc['b0']:.2f}  score={adrc_study.best_value:.5f}")
+        print(f"  ADRC: wc={best_adrc['wc']:.3f}  wo={best_adrc.get('wo', 3*best_adrc['wc']):.3f}  b0={best_adrc['b0']:.2f}  fa={best_adrc.get('filter_alpha', 0.85):.3f}  da={best_adrc.get('dist_alpha', 0.90):.3f}  ea={best_adrc.get('eso_alpha', 0.75):.3f}  ed={best_adrc.get('eso_delta', 1.0):.3f}  score={adrc_study.best_value:.5f}")
     if best_pid:
         print(f"  PID:  P={best_pid['p']:.3f}  I={best_pid['i']:.5f}  D={best_pid['d']:.4f}  score={pid_study.best_value:.5f}")
     print(f"\n  Study history persisted at: {args.db}")
@@ -346,6 +367,11 @@ def main():
         print(f"\n  Re-run benchmark manually:")
         print(f"  .venv/bin/python3 scripts/benchmark_adrc_vs_pid.py \\")
         print(f"    --adrc-wc {best_adrc['wc']:.3f} --adrc-b0 {best_adrc['b0']:.2f} \\")
+        print(f"    --adrc-wo {best_adrc.get('wo', 3*best_adrc['wc']):.3f} \\")
+        print(f"    --adrc-filter-alpha {best_adrc.get('filter_alpha', 0.85):.3f} \\")
+        print(f"    --adrc-dist-alpha {best_adrc.get('dist_alpha', 0.90):.3f} \\")
+        print(f"    --adrc-eso-alpha {best_adrc.get('eso_alpha', 0.75):.3f} \\")
+        print(f"    --adrc-eso-delta {best_adrc.get('eso_delta', 1.0):.3f} \\")
         print(f"    --pid-p {best_pid['p']:.3f} --pid-i {best_pid['i']:.5f} --pid-d {best_pid['d']:.4f}")
 
     # -------------------------------------------------------------------
@@ -364,6 +390,11 @@ def main():
             "--duration", "12",
             "--adrc-wc", f"{best_adrc['wc']:.4f}",
             "--adrc-b0", f"{best_adrc['b0']:.4f}",
+            "--adrc-wo", f"{best_adrc.get('wo', 3*best_adrc['wc']):.4f}",
+            "--adrc-filter-alpha", f"{best_adrc.get('filter_alpha', 0.85):.4f}",
+            "--adrc-dist-alpha", f"{best_adrc.get('dist_alpha', 0.90):.4f}",
+            "--adrc-eso-alpha", f"{best_adrc.get('eso_alpha', 0.75):.4f}",
+            "--adrc-eso-delta", f"{best_adrc.get('eso_delta', 1.0):.4f}",
             "--pid-p",   f"{best_pid['p']:.4f}",
             "--pid-i",   f"{best_pid['i']:.6f}",
             "--pid-d",   f"{best_pid['d']:.4f}",

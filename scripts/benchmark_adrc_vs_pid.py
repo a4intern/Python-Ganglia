@@ -99,7 +99,13 @@ def apply_adrc():
         "mode": "velocity", "p": 0, "i": 0, "d": 0,
         "gain_output": 1.0, "limit_i": 30000, "blend": 100,
     })
-    _post("/set_adrc", {"mode": "velocity", **ADRC_PARAMS})
+    payload = {"mode": "velocity", "wc": ADRC_PARAMS["wc"], "b0": ADRC_PARAMS["b0"], "ramp_time": ADRC_PARAMS["ramp_time"]}
+    if "wo" in ADRC_PARAMS: payload["wo"] = ADRC_PARAMS["wo"]
+    if "filter_alpha" in ADRC_PARAMS: payload["filter_alpha"] = ADRC_PARAMS["filter_alpha"]
+    if "dist_alpha" in ADRC_PARAMS: payload["dist_alpha"] = ADRC_PARAMS["dist_alpha"]
+    if "eso_alpha" in ADRC_PARAMS: payload["eso_alpha"] = ADRC_PARAMS["eso_alpha"]
+    if "eso_delta" in ADRC_PARAMS: payload["eso_delta"] = ADRC_PARAMS["eso_delta"]
+    _post("/set_adrc", payload)
 
 
 def apply_pid():
@@ -149,6 +155,10 @@ def run_step_test(label: str, target_rpm: float, duration: float,
     Reset to 0, wait to settle, apply step, capture telemetry.
     Returns a dict with samples, target, and computed metrics.
     """
+    try:
+        _post("/api/reset")
+    except Exception:
+        pass
     print(f"  [{label}] settling at 0 RPM ({settle_s:.0f}s)…")
     set_target(0)
     time.sleep(settle_s)
@@ -522,13 +532,17 @@ def build_report(adrc_results: list, pid_results: list, timestamp: str, note: st
         <div style="margin-bottom:.5rem"><span class="tag tag-adrc">ADRC</span></div>
         <div class="params">
           <div class="param">wc = <span>{ADRC_PARAMS['wc']}</span></div>
+          <div class="param">wo = <span>{ADRC_PARAMS.get('wo', 3.0*ADRC_PARAMS['wc']):.3f}</span></div>
           <div class="param">b0 = <span>{ADRC_PARAMS['b0']}</span></div>
+          <div class="param">fa = <span>{ADRC_PARAMS.get('filter_alpha', 0.85):.3f}</span></div>
+          <div class="param">da = <span>{ADRC_PARAMS.get('dist_alpha', 0.90):.3f}</span></div>
+          <div class="param">ea = <span>{ADRC_PARAMS.get('eso_alpha', 0.75):.3f}</span></div>
+          <div class="param">ed = <span>{ADRC_PARAMS.get('eso_delta', 1.0):.3f}</span></div>
           <div class="param">ramp = <span>{ADRC_PARAMS['ramp_time']}</span></div>
           <div class="param">blend = <span>100%</span></div>
         </div>
         <div style="color:var(--sub);font-size:.8rem;margin-top:.5rem">
-          Best empirical result from automated tuning sessions.<br>
-          b₀ derived as de-scaler: V_max / (wc × target_max) ≈ 104.
+          Enhanced Nonlinear ADRC (NLESO) with independent observer bandwidth, measurement pre-filtering, and estimated disturbance filtering.
         </div>
       </div>
       <div>
@@ -615,6 +629,11 @@ def main():
     # Allow optimizer to inject best-found params
     parser.add_argument("--adrc-wc",  type=float, default=None)
     parser.add_argument("--adrc-b0",  type=float, default=None)
+    parser.add_argument("--adrc-wo",  type=float, default=None)
+    parser.add_argument("--adrc-filter-alpha", type=float, default=None)
+    parser.add_argument("--adrc-dist-alpha",   type=float, default=None)
+    parser.add_argument("--adrc-eso-alpha",    type=float, default=None)
+    parser.add_argument("--adrc-eso-delta",    type=float, default=None)
     parser.add_argument("--pid-p",    type=float, default=None)
     parser.add_argument("--pid-i",    type=float, default=None)
     parser.add_argument("--pid-d",    type=float, default=None)
@@ -625,6 +644,11 @@ def main():
     # Override module-level defaults if CLI params provided
     if args.adrc_wc is not None: ADRC_PARAMS["wc"]  = args.adrc_wc
     if args.adrc_b0 is not None: ADRC_PARAMS["b0"]  = args.adrc_b0
+    if args.adrc_wo is not None: ADRC_PARAMS["wo"]  = args.adrc_wo
+    if args.adrc_filter_alpha is not None: ADRC_PARAMS["filter_alpha"] = args.adrc_filter_alpha
+    if args.adrc_dist_alpha is not None: ADRC_PARAMS["dist_alpha"] = args.adrc_dist_alpha
+    if args.adrc_eso_alpha is not None: ADRC_PARAMS["eso_alpha"] = args.adrc_eso_alpha
+    if args.adrc_eso_delta is not None: ADRC_PARAMS["eso_delta"] = args.adrc_eso_delta
     if args.pid_p   is not None: PID_PARAMS["p"]    = args.pid_p
     if args.pid_i   is not None: PID_PARAMS["i"]    = args.pid_i
     if args.pid_d   is not None: PID_PARAMS["d"]    = args.pid_d
@@ -652,7 +676,7 @@ def main():
         apply_adrc()
         time.sleep(0.3)
         adrc_results.append(
-            run_step_test(f"ADRC wc={ADRC_PARAMS['wc']} b0={ADRC_PARAMS['b0']}",
+            run_step_test(f"ADRC wc={ADRC_PARAMS['wc']} wo={ADRC_PARAMS.get('wo', 3.0*ADRC_PARAMS['wc']):.2f} b0={ADRC_PARAMS['b0']} fa={ADRC_PARAMS.get('filter_alpha', 0.85):.2f} da={ADRC_PARAMS.get('dist_alpha', 0.90):.2f} ea={ADRC_PARAMS.get('eso_alpha', 0.75):.2f} ed={ADRC_PARAMS.get('eso_delta', 1.0):.2f}",
                           target, args.duration, args.settle)
         )
 
