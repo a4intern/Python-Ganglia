@@ -30,6 +30,10 @@
   "phi6": 0.0,
   "sigma0": 7.866844,
   "sigma1": 0.27715677,
+  "sigma_c0": 30.260019,
+  "sigma_c1": 0.0,
+  "sigma_p0": 0.0027411,
+  "sigma_p1": 0.0,
   "deadzone_pwm_fwd": 230,
   "deadzone_pwm_rev": 230,
   "max_voltage": 24.0
