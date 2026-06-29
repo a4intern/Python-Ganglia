@@ -94,21 +94,25 @@ sim_state = {
     "adrc_wc": 3.0,
     "adrc_b0": _b0_initial,
     "adrc_blend": 100,
-    "adrc_vel_filtered": 0.0,
     "adrc_z1": 0.0,
     "adrc_z2": 0.0,
-    "adrc_z3": 0.0
+    "adrc_z3": 0.0,
+    "adrc_vel_filtered": 0.0
 }
 
 telemetry_history = collections.deque(maxlen=1000)
 
 state_lock = threading.Lock()
 
+def fal(e: float, alpha: float, delta: float) -> float:
+    abs_e = abs(e)
+    if abs_e > delta:
+        return math.copysign(abs_e ** alpha, e)
+    return e / max(1e-5, delta ** (1.0 - alpha))
+
 # ---------------------------------------------------------
 # Simulation Physics Thread
 # ---------------------------------------------------------
-_ADRC_VEL_FILTER_ALPHA = 0.85  # IIR cutoff ~2.6 Hz; reduces loop phase lag while keeping sufficient filtering
-
 def physics_loop():
     dt = 0.01
     obs_velocity = 0.0
@@ -148,7 +152,7 @@ def physics_loop():
                     
                     # LADRC implementation
                     blend_ratio = sim_state["adrc_blend"] / 100.0
-                    wo = 3 * sim_state["adrc_wc"]  # Observer bandwidth is typically 3-5x controller bandwidth
+                    wo = sim_state.get("adrc_wo", 3 * sim_state["adrc_wc"])
                     b0 = sim_state["adrc_b0"]
                     applied_u = sim_state.get("last_voltage", 0.0)
                     
@@ -157,22 +161,33 @@ def physics_loop():
                         beta1 = 2 * wo
                         beta2 = wo**2
 
-                        e = sim_state["adrc_z1"] - sim_state["adrc_vel_filtered"]
-                        sim_state["adrc_z1"] += (sim_state["adrc_z2"] + b0 * applied_u - beta1 * e) * dt
-                        sim_state["adrc_z2"] += (-beta2 * e) * dt
+                        e = sim_state["adrc_z1"] - sim_state.get("adrc_vel_filtered", obs_velocity)
+                        eso_alpha = sim_state.get("adrc_eso_alpha", 0.75)
+                        eso_delta = sim_state.get("adrc_eso_delta", 1.0)
+                        corr = fal(-e, eso_alpha, eso_delta)
+
+                        sim_state["adrc_z1"] += (sim_state["adrc_z2"] + b0 * applied_u + beta1 * corr) * dt
+                        sim_state["adrc_z2"] += (beta2 * corr) * dt
                         sim_state["adrc_z3"] = 0.0  # Not used in 1st order
                         
                         kp = sim_state["adrc_wc"]
                         u0 = kp * (current_target - sim_state["adrc_z1"])
                         
+                        z2_val = sim_state["adrc_z2"]
+                        z2_filtered = sim_state.get("adrc_z2_filtered", z2_val)
+                        dist_alpha = sim_state.get("adrc_dist_filter_alpha", 0.90)
+                        z2_filtered = dist_alpha * z2_filtered + (1.0 - dist_alpha) * z2_val
+                        sim_state["adrc_z2_filtered"] = z2_filtered
+                        
                         if b0 != 0:
-                            adrc_voltage = (u0 - sim_state["adrc_z2"]) / b0
+                            adrc_voltage = (u0 - z2_filtered) / b0
                         else:
                             adrc_voltage = 0
 
                         if not math.isfinite(sim_state["adrc_z1"]) or not math.isfinite(sim_state["adrc_z2"]):
                             sim_state["adrc_z1"] = obs_velocity
                             sim_state["adrc_z2"] = 0.0
+                            sim_state["adrc_z2_filtered"] = 0.0
                             adrc_voltage = 0.0
 
                     else:
@@ -182,16 +197,26 @@ def physics_loop():
                         beta3 = wo**3
                         
                         e = sim_state["adrc_z1"] - obs_position
-                        sim_state["adrc_z1"] += (sim_state["adrc_z2"] - beta1 * e) * dt
-                        sim_state["adrc_z2"] += (sim_state["adrc_z3"] + b0 * applied_u - beta2 * e) * dt
-                        sim_state["adrc_z3"] += (-beta3 * e) * dt
+                        eso_alpha = sim_state.get("adrc_eso_alpha", 0.75)
+                        eso_delta = sim_state.get("adrc_eso_delta", 1.0)
+                        corr = fal(-e, eso_alpha, eso_delta)
+
+                        sim_state["adrc_z1"] += (sim_state["adrc_z2"] + beta1 * corr) * dt
+                        sim_state["adrc_z2"] += (sim_state["adrc_z3"] + b0 * applied_u + beta2 * corr) * dt
+                        sim_state["adrc_z3"] += (beta3 * corr) * dt
                         
                         kp = sim_state["adrc_wc"] ** 2
                         kd = 2 * sim_state["adrc_wc"]
                         u0 = kp * (sim_state["target_position"] - sim_state["adrc_z1"]) - kd * sim_state["adrc_z2"]
                         
+                        z3_val = sim_state["adrc_z3"]
+                        z3_filtered = sim_state.get("adrc_z3_filtered", z3_val)
+                        dist_alpha = sim_state.get("adrc_dist_filter_alpha", 0.90)
+                        z3_filtered = dist_alpha * z3_filtered + (1.0 - dist_alpha) * z3_val
+                        sim_state["adrc_z3_filtered"] = z3_filtered
+                        
                         if b0 != 0:
-                            adrc_voltage = (u0 - sim_state["adrc_z3"]) / b0
+                            adrc_voltage = (u0 - z3_filtered) / b0
                         else:
                             adrc_voltage = 0
 
@@ -199,6 +224,7 @@ def physics_loop():
                             sim_state["adrc_z1"] = 0.0
                             sim_state["adrc_z2"] = 0.0
                             sim_state["adrc_z3"] = 0.0
+                            sim_state["adrc_z3_filtered"] = 0.0
                             adrc_voltage = 0.0
 
                     adrc_voltage = max(min(adrc_voltage, MAX_VOLTAGE), -MAX_VOLTAGE)
@@ -286,17 +312,18 @@ def physics_loop():
             sim_state["z3"] = dom_dt * 60.0 / (2 * math.pi)  # angular accel in RPM/s
 
             # Heteroscedastic noise injection
-            sig = M["sigma0"] + M["sigma1"] * abs(sim_state["velocity"])
-            obs_velocity = sim_state["velocity"] + random.gauss(0, sig)
-            obs_current  = sim_state["current"]  + random.gauss(0, 2.0)
-            obs_position = sim_state["position"] + random.gauss(0, 0.05)
+            obs_velocity = sim_state["velocity"] + random.gauss(0, M["sigma0"] + M["sigma1"] * abs(sim_state["velocity"]))
+            obs_current  = sim_state["current"]  + random.gauss(0, M["sigma_c0"] + M.get("sigma_c1", 0)*abs(sim_state["velocity"]))
+            obs_position = sim_state["position"] + random.gauss(0, M["sigma_p0"] + M.get("sigma_p1", 0)*abs(sim_state["velocity"]))
 
             # Low-pass filter for ADRC observer input only (telemetry keeps raw noisy signal)
+            adrc_fa = sim_state.get("adrc_filter_alpha", 0.85)
             sim_state["adrc_vel_filtered"] = (
-                _ADRC_VEL_FILTER_ALPHA * sim_state["adrc_vel_filtered"]
-                + (1 - _ADRC_VEL_FILTER_ALPHA) * obs_velocity
+                adrc_fa * sim_state["adrc_vel_filtered"]
+                + (1.0 - adrc_fa) * obs_velocity
             )
-            
+
+
             telemetry_history.append({
                 "time": time.time(),
                 "position": sim_state["position"] + random.gauss(0, 0.05),
@@ -377,7 +404,6 @@ class MockModbusClient:
                 sim_state["adrc_z1"] = sim_state["velocity"]
                 sim_state["adrc_z2"] = 0.0
                 sim_state["adrc_z3"] = 0.0
-                sim_state["adrc_vel_filtered"] = sim_state["velocity"]
             if address == 13:
                 sim_state["drive_enabled"] = bool(value)
                 if bool(value):
@@ -389,7 +415,6 @@ class MockModbusClient:
                     sim_state["last_error"] = 0.0
                     sim_state["last_voltage"] = 0.0
                     sim_state["ramped_target"] = sim_state["velocity"]
-                    sim_state["adrc_vel_filtered"] = sim_state["velocity"]
                 
     def write_register(self, address, value, device_id):
         with state_lock:
@@ -416,11 +441,30 @@ class MockModbusClient:
                         sim_state["target_velocity"] = val / 10.0
 
             if address in (368, 376, 384):  # ADRC pos/vel/cur
-                if len(values) >= 8:
-                    b = struct.pack("<8H", *values[:8])
-                    wc, b0, ramp_time, _ = struct.unpack("<ffff", b)
+                if len(values) >= 16:
+                    b = struct.pack("<16H", *values[:16])
+                    wc, b0, ramp_time, wo, filter_alpha, dist_alpha, eso_alpha, eso_delta = struct.unpack("<ffffffff", b)
                     sim_state["adrc_wc"] = max(0.1, min(50.0, wc))
                     sim_state["adrc_b0"] = max(0.1, min(200000.0, b0))
+                    sim_state["adrc_wo"] = wo if wo > 0.1 else 3.0 * wc
+                    sim_state["adrc_filter_alpha"] = filter_alpha if filter_alpha > 0.1 else 0.85
+                    sim_state["adrc_dist_filter_alpha"] = dist_alpha if dist_alpha > 0.1 else 0.90
+                    sim_state["adrc_eso_alpha"] = eso_alpha if eso_alpha > 0.0 else 0.75
+                    sim_state["adrc_eso_delta"] = eso_delta if eso_delta > 0.0 else 1.0
+                elif len(values) >= 12:
+                    b = struct.pack("<12H", *values[:12])
+                    wc, b0, ramp_time, wo, filter_alpha, dist_alpha = struct.unpack("<ffffff", b)
+                    sim_state["adrc_wc"] = max(0.1, min(50.0, wc))
+                    sim_state["adrc_b0"] = max(0.1, min(200000.0, b0))
+                    sim_state["adrc_wo"] = wo if wo > 0.1 else 3.0 * wc
+                    sim_state["adrc_filter_alpha"] = filter_alpha if filter_alpha > 0.1 else 0.85
+                    sim_state["adrc_dist_filter_alpha"] = dist_alpha if dist_alpha > 0.1 else 0.90
+                elif len(values) >= 8:
+                    b = struct.pack("<8H", *values[:8])
+                    wc, b0, ramp_time, wo = struct.unpack("<ffff", b)
+                    sim_state["adrc_wc"] = max(0.1, min(50.0, wc))
+                    sim_state["adrc_b0"] = max(0.1, min(200000.0, b0))
+                    sim_state["adrc_wo"] = wo if wo > 0.1 else 3.0 * wc
 
 pymodbus.client.ModbusSerialClient = MockModbusClient
 
@@ -435,7 +479,12 @@ if __name__ == "__main__":
         wc: float = None
         b0: float = None
         blend: int = None
-        
+        wo: float = None
+        filter_alpha: float = None
+        dist_alpha: float = None
+        eso_alpha: float = None
+        eso_delta: float = None
+
     @main.app.post("/api/tune_adrc")
     async def tune_adrc_endpoint(req: TuneAdrcReq):
         from modbus_handler import agent_state, agent_state_lock, active_ws_queues, active_ws_queues_lock
@@ -443,6 +492,11 @@ if __name__ == "__main__":
             if req.wc is not None: sim_state["adrc_wc"] = req.wc
             if req.b0 is not None: sim_state["adrc_b0"] = req.b0
             if req.blend is not None: sim_state["adrc_blend"] = req.blend
+            if req.wo is not None: sim_state["adrc_wo"] = req.wo
+            if req.filter_alpha is not None: sim_state["adrc_filter_alpha"] = req.filter_alpha
+            if req.dist_alpha is not None: sim_state["adrc_dist_filter_alpha"] = req.dist_alpha
+            if req.eso_alpha is not None: sim_state["adrc_eso_alpha"] = req.eso_alpha
+            if req.eso_delta is not None: sim_state["adrc_eso_delta"] = req.eso_delta
             
             update_msg = {
                 "type": "tuning_update", 
@@ -465,6 +519,25 @@ if __name__ == "__main__":
     async def get_state():
         with state_lock:
             return dict(sim_state)
+            
+    @main.app.post("/api/reset")
+    async def reset_endpoint():
+        with state_lock:
+            sim_state["velocity"] = 0.0
+            sim_state["position"] = 0.0
+            sim_state["current"] = 0.0
+            sim_state["current_A"] = 0.0
+            sim_state["adrc_z1"] = 0.0
+            sim_state["adrc_z2"] = 0.0
+            sim_state["adrc_z3"] = 0.0
+            sim_state["pid_integral"] = 0.0
+            sim_state["last_error"] = 0.0
+            sim_state["last_voltage"] = 0.0
+            sim_state["ramped_target"] = 0.0
+            sim_state["adrc_vel_filtered"] = 0.0
+            if "adrc_z2_filtered" in sim_state: sim_state["adrc_z2_filtered"] = 0.0
+            if "adrc_z3_filtered" in sim_state: sim_state["adrc_z3_filtered"] = 0.0
+        return {"status": "success"}
         
     @main.app.get("/api/history")
     async def get_history(count: int = 1000):
