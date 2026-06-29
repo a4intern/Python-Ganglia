@@ -599,6 +599,7 @@
             <div class="tab-buttons">
                 <button id="btn-pos" onclick="switchTab('pos', -1)">Position</button>
                 <button id="btn-vel" onclick="switchTab('vel', -2)">Velocity</button>
+                <button id="btn-adrcvel" onclick="switchTab('adrcvel', -2)">ADRC Velocity</button>
                 <button id="btn-agent" onclick="switchTab('agent', -2)">Velocity-Agent</button>
                 <button id="btn-cur" onclick="switchTab('cur', -3)">Current</button>
                 <button id="btn-pwm" onclick="switchTab('pwm', 0)">PWM</button>
@@ -832,6 +833,39 @@
                             style="padding: 10px; flex: 1;">Cancel</button>
                     </div>
                 </div>
+            </div>
+
+            <div id="tab-adrcvel" class="tab-content">
+                <h3 style="margin-top:0;">ADRC Velocity</h3>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: center;">
+                    <label style="font-weight:600; font-size:13px;">ωc — Controller BW</label>
+                    <input type="number" id="adrcvel_wc" value="3.0" step="0.5"
+                        onkeydown="if(event.key==='Enter') setADRCVelAll()">
+
+                    <label style="font-weight:600; font-size:13px;">ωo — Observer BW</label>
+                    <input type="number" id="adrcvel_wo" value="15.0" step="1.0"
+                        onkeydown="if(event.key==='Enter') setADRCVelAll()">
+
+                    <label style="font-weight:600; font-size:13px;">b₀ — Input Gain</label>
+                    <input type="number" id="adrcvel_b0" value="120.0" step="1.0"
+                        onkeydown="if(event.key==='Enter') setADRCVelAll()">
+
+                    <label style="font-weight:600; font-size:13px;">Ramp Time (s)</label>
+                    <input type="number" id="adrcvel_ramp" value="0.0" step="0.1"
+                        onkeydown="if(event.key==='Enter') setADRCVelAll()">
+
+                    <label style="font-weight:600; font-size:13px;">Disturbance α</label>
+                    <input type="number" id="adrcvel_da" value="0.90" step="0.01" min="0" max="1"
+                        onkeydown="if(event.key==='Enter') setADRCVelAll()">
+                </div>
+                <hr style="margin: 16px 0; border-color: #e2e8f0;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: center;">
+                    <label style="font-weight:600; font-size:13px;">Target (RPM)</label>
+                    <input type="number" id="adrcvel_target" value="0" step="10"
+                        onkeydown="if(event.key==='Enter') setADRCVelAll()">
+                </div>
+                <button onclick="setADRCVelAll()" class="success-btn"
+                    style="width:100%; padding:10px; margin-top:16px; font-size:14px;">Set All</button>
             </div>
 
             <div id="tab-sysid" class="tab-content">
@@ -1176,6 +1210,27 @@
             const ramp_time = parseFloat(document.getElementById(prefix + '_adrc_ramp').value) || 0;
             const payload = { mode: mode, wc: wc, b0: b0, ramp_time: ramp_time };
             await fetch('/set_adrc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        }
+
+        async function setADRCVelAll() {
+            const wc        = parseFloat(document.getElementById('adrcvel_wc').value)     || 3.0;
+            const wo        = parseFloat(document.getElementById('adrcvel_wo').value)     || 15.0;
+            const b0        = parseFloat(document.getElementById('adrcvel_b0').value)     || 1.0;
+            const ramp_time = parseFloat(document.getElementById('adrcvel_ramp').value)   || 0.0;
+            const dist_alpha = parseFloat(document.getElementById('adrcvel_da').value)    || 0.9;
+            const target    = parseFloat(document.getElementById('adrcvel_target').value) || 0.0;
+
+            await fetch('/set_adrc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'velocity', wc, b0, ramp_time, wo, dist_alpha })
+            });
+            await fetch('/set_target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'velocity', value: target, min_limit: -4000, max_limit: 4000 })
+            });
+            showToast(`ADRC set — ωc=${wc} ωo=${wo} b₀=${b0}`, 'success');
         }
 
         // CSV Export functionality replacing BatchProcessor
