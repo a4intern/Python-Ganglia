@@ -18,6 +18,11 @@ class ADRCRequest(BaseModel):
     wc: float
     b0: float
     ramp_time: float
+    wo: float = None
+    filter_alpha: float = None
+    dist_alpha: float = None
+    eso_alpha: float = None
+    eso_delta: float = None
 
 class TargetRequest(BaseModel):
     mode: str

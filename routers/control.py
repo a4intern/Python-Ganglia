@@ -97,8 +97,13 @@ def set_adrc(req: ADRCRequest):
         }
         addr = addresses.get(req.mode)
         
-        packed_bytes = struct.pack("<ffff", req.wc, req.b0, req.ramp_time, 0.0)
-        registers = struct.unpack("<8H", packed_bytes)
+        wo_val = req.wo if req.wo is not None else 0.0
+        fa_val = req.filter_alpha if req.filter_alpha is not None else 0.0
+        da_val = req.dist_alpha if req.dist_alpha is not None else 0.0
+        ea_val = req.eso_alpha if req.eso_alpha is not None else 0.0
+        ed_val = req.eso_delta if req.eso_delta is not None else 0.0
+        packed_bytes = struct.pack("<ffffffff", req.wc, req.b0, req.ramp_time, wo_val, fa_val, da_val, ea_val, ed_val)
+        registers = struct.unpack("<16H", packed_bytes)
         modbus_client.write_registers(address=addr, values=list(registers), device_id=device_id)
 
     if req.mode == "velocity":
