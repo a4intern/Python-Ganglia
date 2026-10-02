@@ -5,5 +5,11 @@ __pycache__/
 venv/
 ENV/
 env/
+software/
 .env
 .DS_Store
+
+# Generated data and reports
+sysid_data/
+sysid_report/
+scratch/

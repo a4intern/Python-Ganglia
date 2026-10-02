@@ -19,11 +19,32 @@ class ADRCRequest(BaseModel):
     b0: float
     ramp_time: float
 
+class MPCRequest(BaseModel):
+    q_pos: float
+    q_vel: float
+    q_cur: float
+    r_ctrl: float
+    horizon: int
+
+class MPCTargetRequest(BaseModel):
+    target_pos: float
+    target_vel: float
+    target_cur: float
+
+class LQRRequest(BaseModel):
+    q_vel: float
+    q_cur: float
+    r_ctrl: float
+
+class LQRTargetRequest(BaseModel):
+    target_vel: float
+    target_cur: float
+
 class TargetRequest(BaseModel):
     mode: str
-    value: int
-    min_limit: int
-    max_limit: int
+    value: float
+    min_limit: float = -4000.0
+    max_limit: float = 4000.0
 
 class OpModeRequest(BaseModel):
     mode: int
@@ -45,6 +66,9 @@ class ChatRequest(BaseModel):
     message: str
     context: dict
 
+class RPMCapRequest(BaseModel):
+    cap: float
+
 class TransferRequest(BaseModel):
     mode: str
     c_pid0: float
@@ -55,3 +79,16 @@ class TransferRequest(BaseModel):
     c_new2: float
     d_new1: float
     limit_i: int = 30000
+
+class AgentLog(BaseModel):
+    message: str
+
+class AgentPromptRequest(BaseModel):
+    prompt: str
+
+class SysIDStatus(BaseModel):
+    phase: str = "idle"
+    test: str = ""
+    progress: float = 0.0
+    running: bool = False
+    aborted: bool = False

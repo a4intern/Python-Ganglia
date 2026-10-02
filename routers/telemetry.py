@@ -16,9 +16,9 @@ async def telemetry_ws(websocket: WebSocket):
         active_ws_queues.append(ws_queue)
 
     try:
-        while True:
+        while True:     
             telemetry_points = []
-            while True:
+            while True: 
                 try:
                     telemetry_data_point = ws_queue.get_nowait()
                     if "type" in telemetry_data_point and telemetry_data_point["type"] == "transfer_progress":
@@ -33,6 +33,11 @@ async def telemetry_ws(websocket: WebSocket):
                             "z1": telemetry_data_point.get("z1", 0),
                             "z2": telemetry_data_point.get("z2", 0),
                             "z3": telemetry_data_point.get("z3", 0),
+                            "agent_target": telemetry_data_point.get("agent_target", 0.0),
+                            "agent_wc": telemetry_data_point.get("agent_wc", 0.0),
+                            "agent_b0": telemetry_data_point.get("agent_b0", 0.0),
+                            "agent_ramp": telemetry_data_point.get("agent_ramp", 0.0),
+                            "mpc_pred_vel": telemetry_data_point.get("mpc_pred_vel", []),
                         })
                 except queue.Empty:
                     break
